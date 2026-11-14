@@ -1,6 +1,15 @@
 package com.stark.family
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -56,9 +65,31 @@ import androidx.compose.ui.unit.sp
 class MainActivity : ComponentActivity() {
     private val vm: ChatViewModel by viewModels()
 
+    private val notifPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { StarkTheme(vm.character) { ChatScreen(vm) } }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        setContent { StarkTheme(vm.character) { ChatScreen(vm, onBubble = { toggleBubble() }) } }
+    }
+
+    private fun toggleBubble() {
+        if (OverlayService.running) {
+            startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_STOP))
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "\"दूसरे ऐप्स के ऊपर दिखाएँ\" की अनुमति दीजिए, फिर वापस आकर 🫧 दोबारा दबाइए।", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            return
+        }
+        ContextCompat.startForegroundService(this, Intent(this, OverlayService::class.java))
+        Toast.makeText(this, "बबल चालू। अब किसी भी ऐप पर जाइए।", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -83,7 +114,7 @@ fun StarkTheme(ch: Character, content: @Composable () -> Unit) {
 }
 
 @Composable
-fun ChatScreen(vm: ChatViewModel) {
+fun ChatScreen(vm: ChatViewModel, onBubble: () -> Unit) {
     val ch = vm.character
     val msgs = vm.messages()
     val listState = rememberLazyListState()
@@ -102,7 +133,8 @@ fun ChatScreen(vm: ChatViewModel) {
                 "स्टार्क परिवार", color = ch.accent, fontSize = 20.sp,
                 fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = { vm.openBrain() }) { Text("🧠 दिमाग़", color = ch.accent2) }
+            TextButton(onClick = onBubble) { Text(if (OverlayService.running) "🫧 बंद" else "🫧 बबल", color = ch.accent2) }
+            TextButton(onClick = { vm.openBrain() }) { Text("🧠", color = ch.accent2) }
             TextButton(onClick = { vm.showSettings = true }) { Text("⚙", color = ch.accent2, fontSize = 20.sp) }
         }
 

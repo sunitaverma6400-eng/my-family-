@@ -19,3 +19,8 @@ https://<आपकी-service>.onrender.com/test खोलिए > APP_TOKEN ड
 repo में push होते ही GitHub Actions APK बनाता है।
 GitHub > Actions > "Build debug APK" हरा होने पर > Releases > `debug-latest` > app-debug.apk डाउनलोड करके install करें।
 पहली बार ऐप खोलकर सेटिंग (⚙) में Relay URL (https://….onrender.com) और APP_TOKEN डालें।
+
+## बबल (Milestone 2)
+1. ऐप खोलकर ऊपर "🫧 बबल" दबाइए > "दूसरे ऐप्स के ऊपर दिखाएँ" की अनुमति दीजिए > वापस आकर फिर "🫧 बबल" दबाइए।
+2. vivo/Funtouch: Settings > Apps > Stark Family > Permissions में "Display pop-ups while running in background" (बैकग्राउंड पॉप-अप) और "Autostart" चालू कीजिए, और Battery में "Allow background activity" चुनिए।
+3. YouTube जैसे किसी ऐप पर जाइए > बबल दबाइए > किरदार चुनिए > लिखकर बात कीजिए। ✕ से बबल बन जाता है, 25 सेकंड बाद अपने-आप भी।
