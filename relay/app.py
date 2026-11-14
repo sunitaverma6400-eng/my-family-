@@ -71,7 +71,9 @@ def create_app(router=None, personas=None, token=None):
                         ids = {str(m.get("id", "")).replace("models/", "") for m in resp.json().get("data", [])}
                         info["models_available"] = len(ids)
                         info["config_models"] = {m: (m in ids) for m in sorted(wanted.get(prov, []))}
-                        if prov != "openrouter":
+                        if prov == "openrouter":
+                            info["free_models"] = sorted(i for i in ids if i.endswith(":free"))[:60]
+                        else:
                             info["sample"] = sorted(ids)[:40]
                     else:
                         info["problem"] = "key काम नहीं कर रही" if resp.status_code in (401, 403) else (resp.text or "")[:200].replace(lst[0].key, "***")

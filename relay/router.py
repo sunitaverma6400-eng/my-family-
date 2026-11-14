@@ -119,7 +119,7 @@ def _classify(status, headers, text):
     low = (text or "").lower()
     if status == 429:
         return "rate", _parse_retry_after(h)
-    if status in (401, 403):
+    if status in (401, 403) or any(x in low for x in ("invalid auth key", "api key not valid", "api_key_invalid", "invalid api key")):
         return "auth", None
     if status == 404 or any(s in low for s in ("decommission", "does not exist", "not found", "no longer supported")):
         return "model", None
@@ -295,12 +295,14 @@ class Router:
         return int(max(5, min(120, min(waits)))) if waits else 15
 
     # ---------- the call ----------
-    def _call(self, ks, model, messages, temperature, max_tokens):
+    def _call(self, ks, model, messages, temperature, max_tokens, extra=None):
         req = self.cfg["request"]
         headers = {"Authorization": f"Bearer {ks.key}", "Content-Type": "application/json"}
         if ks.provider == "openrouter":
             headers["X-Title"] = "Stark Family"
         payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+        if extra:
+            payload.update(extra)
         try:
             resp = self.transport(PROVIDERS[ks.provider]["url"], headers=headers, json=payload, timeout=req["timeout_s"])
         except requests.Timeout:
@@ -338,7 +340,7 @@ class Router:
                 used += 1
                 total += 1
                 try:
-                    text = self._call(ks, model, messages, temperature, max_tokens)
+                    text = self._call(ks, model, messages, temperature, max_tokens, entry.get("params"))
                 except _Fail as f:
                     errors.append(f"{prov}/{model}:{f.kind}")
                     self._on_failure(ks, model, f)
