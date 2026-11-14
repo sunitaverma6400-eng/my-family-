@@ -14,3 +14,8 @@
 https://<आपकी-service>.onrender.com/test खोलिए > APP_TOKEN डालिए >
 - "मॉडल जाँच" दबाइए (कौन-सा model नाम सही है)
 - Jarvis/Vision चुनकर "भेजो" दबाइए
+
+## App (APK)
+repo में push होते ही GitHub Actions APK बनाता है।
+GitHub > Actions > "Build debug APK" हरा होने पर > Releases > `debug-latest` > app-debug.apk डाउनलोड करके install करें।
+पहली बार ऐप खोलकर सेटिंग (⚙) में Relay URL (https://….onrender.com) और APP_TOKEN डालें।
