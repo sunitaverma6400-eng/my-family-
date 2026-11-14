@@ -221,7 +221,7 @@ class AppTests(unittest.TestCase):
 class PersonaTests(unittest.TestCase):
     def test_personas_complete_and_hindi(self):
         ps = load_personas()
-        self.assertEqual(set(ps), {"jarvis", "vision"})
+        self.assertEqual(set(ps), {"jarvis", "vision", "friday", "edith", "ultron", "dume", "u", "karen"})
         for p in ps.values():
             self.assertGreaterEqual(len(p["examples"]), 6)
             for ex in p["examples"]:

@@ -19,6 +19,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0f1729;padding:10px;b
 <script>
 const $=id=>document.getElementById(id);
 $('tok').value=localStorage.getItem('tok')||'';
+async function loadChars(){try{const r=await fetch('/characters',{headers:hdr()});if(!r.ok)return;const l=await r.json();const cur=$('ch').value;$('ch').innerHTML=l.map(c=>'<option value="'+c.id+'">'+c.name+'</option>').join('');if(l.some(c=>c.id===cur))$('ch').value=cur}catch(e){}}
+$('tok').addEventListener('change',loadChars);if($('tok').value)loadChars();
 function hdr(){localStorage.setItem('tok',$('tok').value.trim());return {'X-App-Token':$('tok').value.trim(),'Content-Type':'application/json'}}
 async function show(r){let t=await r.text();try{t=JSON.stringify(JSON.parse(t),null,2)}catch(e){}$('out').textContent='HTTP '+r.status+'\n'+t}
 async function get(p){$('out').textContent='…';try{await show(await fetch(p,{headers:hdr()}))}catch(e){$('out').textContent='Network error: '+e}}
