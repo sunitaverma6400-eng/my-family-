@@ -158,9 +158,9 @@ class OverlayService : Service() {
                 onInput = { input = it; scheduleCollapse() },
                 onSend = { send(it) },
                 onPick = { summon(it) },
-                onBubbleTap = { setMode(if (mode == Mode.BUBBLE) Mode.PICKER else Mode.BUBBLE) },
+                onBubbleTap = { changeMode(if (mode == Mode.BUBBLE) Mode.PICKER else Mode.BUBBLE) },
                 onDrag = { dx, dy -> drag(dx, dy) },
-                onCollapse = { setMode(Mode.BUBBLE) },
+                onCollapse = { changeMode(Mode.BUBBLE) },
                 onStop = { stopTask() },
             )
         }
@@ -179,7 +179,7 @@ class OverlayService : Service() {
         update()
     }
 
-    private fun setMode(m: Mode) {
+    private fun changeMode(m: Mode) {
         if (m == mode) return
         if (mode == Mode.BUBBLE) {
             savedX = lp.x
@@ -207,14 +207,14 @@ class OverlayService : Service() {
         character = c
         said = ""
         input = ""
-        setMode(Mode.CHAT)
+        changeMode(Mode.CHAT)
     }
 
     private fun scheduleCollapse() {
         collapseJob?.cancel()
         collapseJob = scope.launch {
             delay(25_000)
-            if (!busy && input.isBlank()) setMode(Mode.BUBBLE)
+            if (!busy && input.isBlank()) changeMode(Mode.BUBBLE)
         }
     }
 
