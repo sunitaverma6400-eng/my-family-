@@ -11,7 +11,7 @@ import time
 from flask import Flask, jsonify, request
 
 from prompting import (build_messages, clean_history, language_ok, load_personas,
-                       rewrite_request)
+                       rewrite_request, strip_emoji)
 import requests
 
 from router import PROVIDERS, AllBusy, Router, load_config
@@ -128,6 +128,7 @@ def create_app(router=None, personas=None, token=None):
                     text, lang_ok, res = fix.text, True, fix
             except AllBusy:
                 pass
+        text = strip_emoji(text) or text
         log.info("chat char=%s tier=%s provider=%s model=%s attempts=%d lang_ok=%s ms=%d",
                  cid, tier, res.provider, res.model, res.attempts, lang_ok, (time.time() - t0) * 1000)
         return jsonify(speech=text, degraded=False, retry_after_s=0, language_ok=lang_ok,

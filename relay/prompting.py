@@ -15,6 +15,14 @@ LANG_RULE = (
 )
 
 
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]+")
+
+
+def strip_emoji(text):
+    """Voice (TTS) reads emoji badly, so they never reach the app."""
+    return re.sub(r"[ \t]{2,}", " ", _EMOJI.sub("", text or "")).strip()
+
+
 def hindi_ratio(text):
     dev, lat = len(_DEV.findall(text)), len(_LAT.findall(text))
     total = dev + lat
@@ -53,6 +61,8 @@ def build_system_prompt(p, memory=None, context=None):
     L.append("# नियम")
     L.append(f"- {LANG_RULE}")
     L.append("- जवाब छोटा रखो, जब तक उपयोगकर्ता विस्तार न माँगे।")
+    L.append("- कोई इमोजी या चित्र-चिह्न मत लिखो (जवाब आवाज़ में पढ़ा जाएगा)।")
+    L.append("- साधारण अभिवादन पर भी अपने किरदार की अलग बोली और लहजा दिखाओ। 'मैं ठीक हूँ, आप कैसे हैं?' जैसा सबके लिए एक-सा जवाब मत दो।")
     L.append(
         "- ईमानदार रहो: अभी तुम्हारे पास फ़ोन चलाने, अलार्म/कॉल/संदेश भेजने या इंटरनेट खोजने का कोई औज़ार जुड़ा नहीं है। "
         "कभी मत कहो कि तुमने ऐसा कुछ कर दिया। जो नहीं कर सकते, साफ़ बता दो।"

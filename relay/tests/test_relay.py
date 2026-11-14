@@ -229,6 +229,11 @@ class PersonaTests(unittest.TestCase):
             self.assertIn("Devanagari", build_system_prompt(p))
             self.assertTrue(language_ok(p["busy_line"]))
 
+    def test_strip_emoji(self):
+        from prompting import strip_emoji
+        self.assertEqual(strip_emoji("आप कैसे हैं? \U0001F60A"), "आप कैसे हैं?")
+        self.assertEqual(strip_emoji("जी सर, Chrome खोल रहा हूँ।"), "जी सर, Chrome खोल रहा हूँ।")
+
     def test_language_guard(self):
         self.assertFalse(language_ok("Sure sir, I will do that right now for you"))
         self.assertTrue(language_ok("जी सर, Chrome खोल रहा हूँ"))
