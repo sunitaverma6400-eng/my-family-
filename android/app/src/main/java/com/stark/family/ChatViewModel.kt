@@ -35,6 +35,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
     private val client = RelayClient()
     private val histories = mutableMapOf<String, SnapshotStateList<Msg>>()
+    private val repo = MemoryRepo.get(app)
 
     var character by mutableStateOf(Characters.JARVIS)
     var relayUrl by mutableStateOf(prefs.relayUrl)
@@ -43,6 +44,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var waking by mutableStateOf(false)
     var showSettings by mutableStateOf(prefs.relayUrl.isBlank() || prefs.token.isBlank())
     var brainText by mutableStateOf<String?>(null)
+    var showMemory by mutableStateOf(false)
+
+    init {
+        viewModelScope.launch { repo.maintain(relayUrl, token) }
+    }
 
     fun messages(): SnapshotStateList<Msg> = histories.getOrPut(character.id) { mutableStateListOf() }
 
@@ -83,12 +89,22 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 var tries = 0
+                val mem = repo.relevant(t, ch.id)
                 while (true) {
-                    val r = client.chat(relayUrl, token, ch.id, t, history) { waking = it }
+                    val r = client.chat(
+                        relayUrl, token, ch.id, t, history,
+                        tools = Tools.MEMORY_NAMES, context = Tools.context(), memory = mem,
+                    ) { waking = it }
                     if (!r.degraded) {
                         var meta = "${r.provider} · ${r.model}"
                         if (!r.languageOk) meta += " · ⚠ जवाब पूरी तरह हिंदी में नहीं"
                         list.add(Msg(Kind.AI, r.speech, meta))
+                        repo.addEpisode(ch.id, t, r.speech, r.toolCalls.joinToString(",") { it.name })
+                        for (c in r.toolCalls.filter { it.name in Tools.MEMORY_NAMES }.take(3)) {
+                            val res = Tools.plan(getApplication<Application>(), c, ch.id).run()
+                            list.add(Msg(Kind.NOTE, (if (res.ok) "✓ " else "✗ ") + res.message))
+                        }
+                        viewModelScope.launch { repo.maintain(relayUrl, token) }
                         break
                     }
                     tries++

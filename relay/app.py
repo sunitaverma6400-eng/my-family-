@@ -14,6 +14,7 @@ from prompting import (build_messages, clean_history, language_ok, load_personas
                        rewrite_request, strip_emoji)
 import requests
 
+import memorykit
 import tools as toolmod
 from router import PROVIDERS, AllBusy, Router, load_config
 from test_page import PAGE
@@ -82,6 +83,26 @@ def create_app(router=None, personas=None, token=None):
                     info["problem"] = type(e).__name__
             out[prov] = info
         return jsonify(out)
+
+    @app.post("/summarize")
+    def summarize():
+        """Phone sends raw episodes/summaries; relay returns a summary (+ facts, habits, notes). Nothing is stored here."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        kind = data.get("kind")
+        prompt = memorykit.build_prompt(kind, data)
+        if prompt is None:
+            return jsonify(error="bad_request"), 400
+        try:
+            res = router.complete("fast", prompt, temperature=0.2, max_tokens=1200)
+        except AllBusy as e:
+            return jsonify(degraded=True, retry_after_s=e.retry_after_s, errors=e.errors[-4:])
+        out = memorykit.parse_summary(kind, res.text, set(personas))
+        if out is None:
+            log.warning("summarize bad json kind=%s", kind)
+            return jsonify(degraded=True, retry_after_s=60, errors=["bad_json"])
+        return jsonify(degraded=False, provider=res.provider, model=res.model, **out)
 
     @app.get("/characters")
     def characters():

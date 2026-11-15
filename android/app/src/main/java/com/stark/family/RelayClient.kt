@@ -35,7 +35,7 @@ class RelayClient {
     suspend fun chat(
         base: String, token: String, character: String, message: String,
         history: List<Pair<String, String>>,
-        tools: List<String> = emptyList(), context: JSONObject? = null,
+        tools: List<String> = emptyList(), context: JSONObject? = null, memory: List<String> = emptyList(),
         onWaking: (Boolean) -> Unit,
     ): ChatReply {
         val hist = JSONArray()
@@ -43,6 +43,7 @@ class RelayClient {
         val body = JSONObject().put("character", character).put("message", message).put("history", hist)
         if (tools.isNotEmpty()) body.put("tools", JSONArray(tools))
         if (context != null) body.put("context", context)
+        if (memory.isNotEmpty()) body.put("memory", JSONArray(memory))
         val j = request(base, "/chat", token, body.toString(), onWaking)
         return ChatReply(
             speech = j.optString("speech", ""),
@@ -67,6 +68,14 @@ class RelayClient {
                 o.optString("risk", "high"), o.optBoolean("confirm", true)))
         }
         return out
+    }
+
+    /** Memory ladder helper. Returns null when the relay is busy (try again later). */
+    suspend fun summarize(base: String, token: String, kind: String, items: JSONArray, profilePrev: String? = null): JSONObject? {
+        val body = JSONObject().put("kind", kind).put("items", items)
+        if (profilePrev != null) body.put("profile_prev", profilePrev)
+        val j = request(base, "/summarize", token, body.toString()) { }
+        return if (j.optBoolean("degraded", false)) null else j
     }
 
     suspend fun brainStatus(base: String, token: String, onWaking: (Boolean) -> Unit): JSONObject =

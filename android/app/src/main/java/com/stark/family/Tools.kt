@@ -25,15 +25,18 @@ data class ToolCall(val id: String, val name: String, val args: JSONObject, val 
 data class ToolResult(val ok: Boolean, val message: String)
 
 /** description is shown to the user before anything risky runs; run() does the real work. */
-class ToolPlan(val risk: Risk, val description: String, val run: () -> ToolResult)
+class ToolPlan(val risk: Risk, val description: String, val run: suspend () -> ToolResult)
 
 object Tools {
     /** Risk is decided in app code. The model's or relay's word alone never lowers it. */
     private val RISK = mapOf(
         "set_alarm" to Risk.LOW, "set_timer" to Risk.LOW, "set_reminder" to Risk.LOW,
-        "open_app" to Risk.LOW, "torch" to Risk.LOW, "call_contact" to Risk.HIGH,
+        "open_app" to Risk.LOW, "torch" to Risk.LOW, "call_contact" to Risk.HIGH, "remember_fact" to Risk.LOW,
     )
     val NAMES: List<String> = RISK.keys.toList()
+
+    /** In the main chat screen only memory tools run; phone actions (alarm, call, torch…) come from the bubble. */
+    val MEMORY_NAMES: List<String> = listOf("remember_fact")
 
     fun needsConfirm(c: ToolCall): Boolean = (RISK[c.name] ?: Risk.HIGH) != Risk.LOW || c.confirm
 
@@ -59,7 +62,7 @@ object Tools {
         false
     }
 
-    fun plan(ctx: Context, c: ToolCall): ToolPlan = try {
+    fun plan(ctx: Context, c: ToolCall, character: String = ""): ToolPlan = try {
         when (c.name) {
             "set_alarm", "set_reminder" -> {
                 val h = c.args.getInt("hour")
@@ -93,6 +96,14 @@ object Tools {
             "torch" -> {
                 val on = c.args.getBoolean("on")
                 ToolPlan(Risk.LOW, if (on) "टॉर्च चालू" else "टॉर्च बंद") { torch(ctx, on) }
+            }
+            "remember_fact" -> {
+                val f = c.args.getString("fact")
+                val imp = c.args.optInt("importance", 3)
+                ToolPlan(Risk.LOW, "याद रखना: $f") {
+                    if (MemoryRepo.get(ctx).addFact(f, imp, "told", character)) ToolResult(true, "याद रख लिया: $f")
+                    else ToolResult(false, "यह याद नहीं रखा (बहुत छोटी या संवेदनशील बात)।")
+                }
             }
             "call_contact" -> planCall(ctx, c.args.getString("contact"))
             else -> fail("यह औज़ार मेरे पास नहीं है: ${c.name}")

@@ -78,7 +78,12 @@ class MainActivity : ComponentActivity() {
             need.add(Manifest.permission.READ_CONTACTS)  // only to find a contact's number when you ask for a call
         }
         if (need.isNotEmpty()) permLauncher.launch(need.toTypedArray())
-        setContent { StarkTheme(vm.character) { ChatScreen(vm, onBubble = { toggleBubble() }) } }
+        setContent {
+            StarkTheme(vm.character) {
+                if (vm.showMemory) MemoryScreen(vm.character) { vm.showMemory = false }
+                else ChatScreen(vm, onBubble = { toggleBubble() })
+            }
+        }
     }
 
     private fun toggleBubble() {
@@ -137,6 +142,7 @@ fun ChatScreen(vm: ChatViewModel, onBubble: () -> Unit) {
                 fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
             )
             TextButton(onClick = onBubble) { Text(if (OverlayService.running) "🫧 बंद" else "🫧 बबल", color = ch.accent2) }
+            TextButton(onClick = { vm.showMemory = true }) { Text("📚", color = ch.accent2) }
             TextButton(onClick = { vm.openBrain() }) { Text("🧠", color = ch.accent2) }
             TextButton(onClick = { vm.showSettings = true }) { Text("⚙", color = ch.accent2, fontSize = 20.sp) }
         }

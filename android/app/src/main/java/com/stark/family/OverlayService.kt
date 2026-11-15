@@ -76,6 +76,7 @@ class OverlayService : Service() {
     private lateinit var wm: WindowManager
     private lateinit var lp: WindowManager.LayoutParams
     private lateinit var prefs: Prefs
+    private lateinit var repo: MemoryRepo
     private val owner = ServiceOwner()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val client = RelayClient()
@@ -101,6 +102,7 @@ class OverlayService : Service() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         prefs = Prefs(this)
+        repo = MemoryRepo.get(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -120,6 +122,7 @@ class OverlayService : Service() {
         }
         if (view == null) showOverlay()
         running = true
+        scope.launch { repo.maintain(prefs.relayUrl, prefs.token) }
         return START_NOT_STICKY
     }
 
@@ -230,9 +233,9 @@ class OverlayService : Service() {
     }
 
     /** Low-risk tools run at once; anything risky waits for an explicit "हाँ" on screen. Results are honest. */
-    private suspend fun runTools(calls: List<ToolCall>) {
+    private suspend fun runTools(calls: List<ToolCall>, who: String) {
         for (c in calls.take(3)) {
-            val plan = withContext(Dispatchers.IO) { Tools.plan(applicationContext, c) }
+            val plan = withContext(Dispatchers.IO) { Tools.plan(applicationContext, c, who) }
             if (plan.description.isNotBlank() && (plan.risk != Risk.LOW || Tools.needsConfirm(c))) {
                 val ask = CompletableDeferred<Boolean>()
                 pending = Pending(plan.description, ask)
@@ -272,16 +275,18 @@ class OverlayService : Service() {
         val h = hist.getOrPut(cid) { mutableListOf() }
         job = scope.launch {
             try {
+                val mem = repo.relevant(t, cid)
                 val r = client.chat(
                     prefs.relayUrl, prefs.token, cid, t, h.takeLast(8),
-                    tools = Tools.NAMES, context = Tools.context(),
+                    tools = Tools.NAMES, context = Tools.context(), memory = mem,
                 ) { waking = it }
                 said = r.speech.ifBlank { if (r.toolCalls.isEmpty()) "..." else "ठीक है।" }
                 h.add("user" to t)
                 h.add("assistant" to r.speech)
                 busy = false
                 waking = false
-                runTools(r.toolCalls)
+                repo.addEpisode(cid, t, r.speech, r.toolCalls.joinToString(",") { it.name })
+                runTools(r.toolCalls, cid)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RelayClient.RelayException) {

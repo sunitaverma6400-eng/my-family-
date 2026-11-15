@@ -7,6 +7,8 @@ import json
 import os
 import re
 
+from memorykit import is_sensitive
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 MAX_CALLS = 3
 
@@ -55,7 +57,15 @@ def _bool(v):
     raise ValueError("not a bool")
 
 
+def _fact(v):
+    s = _str(v, 200)
+    if is_sensitive(s):
+        raise ValueError("sensitive")
+    return s
+
+
 VALIDATORS = {
+    "remember_fact": lambda a: {"fact": _fact(a.get("fact")), "importance": _int(a.get("importance", 3), 1, 5)},
     "set_alarm": lambda a: {"hour": _int(a.get("hour"), 0, 23), "minute": _int(a.get("minute", 0), 0, 59),
                             "label": _str(a.get("label"), 40, required=False)},
     "set_timer": lambda a: {"seconds": _int(a.get("seconds"), 1, 86400), "label": _str(a.get("label"), 40, required=False)},

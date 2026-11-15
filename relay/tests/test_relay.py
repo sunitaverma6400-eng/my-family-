@@ -300,6 +300,54 @@ class ToolTests(unittest.TestCase):
         self.assertIn("tool_calls", sp)
 
 
+class MemoryTests(unittest.TestCase):
+    H = {"X-App-Token": "tok"}
+
+    def client(self, replies):
+        fr = FakeRouter(replies)
+        return create_app(router=fr, personas=load_personas(), token="tok").test_client(), fr
+
+    def test_summarize_daily(self):
+        reply = ('{"summary": "आज उपयोगकर्ता ने परीक्षा की बात की।", "facts": [{"text": "परीक्षा 20 तारीख़ को है", "importance": 5},'
+                 '{"text": "मेरा कार्ड 4111 1111 1111 1111 है", "importance": 3}], "habits": ["रात को देर तक जागता है"],'
+                 '"notes": [{"character": "ultron", "text": "फिर बहाना बनाया"}, {"character": "ghost", "text": "x"}]}')
+        c, _ = self.client([reply])
+        j = c.post("/summarize", json={"kind": "daily", "items": [{"character": "jarvis", "user": "कल परीक्षा है", "reply": "ठीक है"}]}, headers=self.H).get_json()
+        self.assertFalse(j["degraded"])
+        self.assertEqual([f["text"] for f in j["facts"]], ["परीक्षा 20 तारीख़ को है"])
+        self.assertEqual(j["notes"], [{"character": "ultron", "text": "फिर बहाना बनाया"}])
+
+    def test_summarize_guarded_and_validated(self):
+        c, _ = self.client([])
+        self.assertEqual(c.post("/summarize", json={"kind": "daily", "items": [{}]}).status_code, 401)
+        self.assertEqual(c.post("/summarize", json={"kind": "weird", "items": [1]}, headers=self.H).status_code, 400)
+        self.assertEqual(c.post("/summarize", json={"kind": "weekly", "items": []}, headers=self.H).status_code, 400)
+
+    def test_summarize_bad_json_is_degraded(self):
+        c, _ = self.client(["ये JSON नहीं है"])
+        j = c.post("/summarize", json={"kind": "weekly", "items": [{"period": "2026-11-13", "text": "सार"}]}, headers=self.H).get_json()
+        self.assertTrue(j["degraded"])
+
+    def test_remember_fact_tool_all_characters_and_privacy(self):
+        from tools import allowed_for
+        for who in ("jarvis", "vision", "ultron", "karen", "friday"):
+            self.assertIn("remember_fact", allowed_for(who, ["remember_fact"]), who)
+        ok = '{"speech": "याद रख लिया।", "tool_calls": [{"name": "remember_fact", "args": {"fact": "मेरा नाम अमित है", "importance": 4}}]}'
+        c, _ = self.client([ok])
+        j = c.post("/chat", json={"character": "vision", "message": "याद रखो मेरा नाम अमित है", "tools": ["remember_fact"]}, headers=self.H).get_json()
+        self.assertEqual(j["tool_calls"][0]["args"], {"fact": "मेरा नाम अमित है", "importance": 4})
+        bad = '{"speech": "ठीक है।", "tool_calls": [{"name": "remember_fact", "args": {"fact": "मेरा OTP 482913 है"}}, {"name": "remember_fact", "args": {"fact": "card 4111 1111 1111 1111"}}]}'
+        c, _ = self.client([bad])
+        j = c.post("/chat", json={"character": "jarvis", "message": "x", "tools": ["remember_fact"]}, headers=self.H).get_json()
+        self.assertEqual(j["tool_calls"], [])
+
+    def test_memory_list_goes_into_prompt(self):
+        p = load_personas()["jarvis"]
+        sp = build_system_prompt(p, memory=["तथ्य: उपयोगकर्ता का नाम अमित है", "आदत: रात को देर तक जागता है"])
+        self.assertIn("नाम अमित", sp)
+        self.assertIn("आदत", sp)
+
+
 class PersonaTests(unittest.TestCase):
     def test_personas_complete_and_hindi(self):
         ps = load_personas()
