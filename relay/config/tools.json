@@ -1,0 +1,18 @@
+{
+  "_note": "Source of truth for phone tools: schema text shown to the model, risk, and which character may use which tool. The app re-checks risk in its own code.",
+  "tools": {
+    "set_alarm":    {"risk": "low",  "desc": "किसी समय का अलार्म लगाना",              "args": "{\"hour\": 0-23, \"minute\": 0-59, \"label\": \"छोटा नाम (वैकल्पिक)\"}"},
+    "set_timer":    {"risk": "low",  "desc": "कुछ देर का टाइमर लगाना",                "args": "{\"seconds\": 1-86400, \"label\": \"वैकल्पिक\"}"},
+    "set_reminder": {"risk": "low",  "desc": "किसी समय पर किसी बात की याद दिलाना",     "args": "{\"hour\": 0-23, \"minute\": 0-59, \"text\": \"क्या याद दिलाना है\"}"},
+    "open_app":     {"risk": "low",  "desc": "फ़ोन का कोई ऐप खोलना",                  "args": "{\"app\": \"ऐप का नाम, जैसे YouTube\"}"},
+    "torch":        {"risk": "low",  "desc": "टॉर्च चालू या बंद करना",                "args": "{\"on\": true या false}"},
+    "call_contact": {"risk": "high", "desc": "किसी संपर्क को कॉल करना (हर बार उपयोगकर्ता से पूछकर)", "args": "{\"contact\": \"संपर्क का नाम या नंबर\"}"}
+  },
+  "permissions": {
+    "jarvis": ["set_alarm", "set_timer", "set_reminder", "open_app", "torch", "call_contact"],
+    "friday": ["set_alarm", "set_timer", "set_reminder", "open_app"],
+    "edith":  ["torch", "open_app"],
+    "dume":   ["torch", "open_app"],
+    "u":      ["torch", "open_app"]
+  }
+}

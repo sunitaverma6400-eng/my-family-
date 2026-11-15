@@ -218,6 +218,88 @@ class AppTests(unittest.TestCase):
         self.assertEqual(c.post("/chat", json={"message": "  "}, headers=self.H).status_code, 400)
 
 
+class ToolTests(unittest.TestCase):
+    H = {"X-App-Token": "tok"}
+    ALL = ["set_alarm", "set_timer", "set_reminder", "open_app", "torch", "call_contact"]
+
+    def client(self, replies):
+        fr = FakeRouter(replies)
+        return create_app(router=fr, personas=load_personas(), token="tok").test_client(), fr
+
+    def chat(self, c, char, msg="x", tools=None):
+        body = {"character": char, "message": msg}
+        if tools is not None:
+            body["tools"] = tools
+        return c.post("/chat", json=body, headers=self.H).get_json()
+
+    def test_alarm_call_passes_validation(self):
+        reply = '{"speech": "जी, सुबह छह बजे का अलार्म लगा रहा हूँ।", "tool_calls": [{"name": "set_alarm", "args": {"hour": "6", "minute": 0}}]}'
+        c, _ = self.client([reply])
+        j = self.chat(c, "jarvis", "alarm 6 baje", self.ALL)
+        self.assertEqual(j["speech"], "जी, सुबह छह बजे का अलार्म लगा रहा हूँ।")
+        self.assertEqual(j["tool_calls"][0]["name"], "set_alarm")
+        self.assertEqual(j["tool_calls"][0]["args"], {"hour": 6, "minute": 0, "label": ""})
+        self.assertFalse(j["tool_calls"][0]["confirm"])
+
+    def test_call_contact_needs_confirm(self):
+        reply = '```json\n{"speech": "राहुल को कॉल लगाऊँ?", "tool_calls": [{"name": "call_contact", "args": {"contact": "राहुल"}}]}\n```'
+        c, _ = self.client([reply])
+        j = self.chat(c, "jarvis", "rahul ko call", self.ALL)
+        self.assertTrue(j["tool_calls"][0]["confirm"])
+        self.assertEqual(j["tool_calls"][0]["risk"], "high")
+
+    def test_character_without_permission_gets_no_tools(self):
+        from tools import allowed_for
+        for who in ("vision", "ultron", "karen"):
+            self.assertEqual(allowed_for(who, self.ALL), [], who)
+        self.assertEqual(allowed_for("edith", self.ALL), ["torch", "open_app"])
+        c, _ = self.client(["मैं अलार्म नहीं लगा सकता, सर।"])
+        j = self.chat(c, "vision", "alarm", self.ALL)
+        self.assertEqual((j["speech"], j["tool_calls"]), ("मैं अलार्म नहीं लगा सकता, सर।", []))
+        # a permitted character still cannot use a tool outside its own list
+        reply = '{"speech": "ठीक है।", "tool_calls": [{"name": "set_alarm", "args": {"hour": 6, "minute": 0}}]}'
+        c, _ = self.client([reply])
+        self.assertEqual(self.chat(c, "edith", "alarm", self.ALL)["tool_calls"], [])
+
+    def test_no_tools_requested_means_plain_mode(self):
+        c, fr = self.client(["जी सर, बताइए।"])
+        j = self.chat(c, "jarvis", "hi")
+        self.assertEqual((j["speech"], j["tool_calls"]), ("जी सर, बताइए।", []))
+
+    def test_bad_args_and_unknown_tools_dropped(self):
+        reply = ('{"speech": "ठीक है।", "tool_calls": [{"name": "set_alarm", "args": {"hour": 99}},'
+                 '{"name": "delete_files", "args": {}}, {"name": "torch", "args": {"on": "maybe"}}]}')
+        c, _ = self.client([reply])
+        j = self.chat(c, "jarvis", "x", self.ALL)
+        self.assertEqual(j["tool_calls"], [])
+        self.assertEqual(len(j["tool_notes"]), 3)
+
+    def test_plain_text_when_model_ignores_json(self):
+        c, _ = self.client(["जी सर, कौन से बजे का लगाऊँ?"])
+        j = self.chat(c, "jarvis", "alarm", self.ALL)
+        self.assertEqual((j["speech"], j["tool_calls"]), ("जी सर, कौन से बजे का लगाऊँ?", []))
+
+    def test_max_three_calls(self):
+        calls = ",".join('{"name": "torch", "args": {"on": true}}' for _ in range(5))
+        c, _ = self.client(['{"speech": "ठीक है।", "tool_calls": [' + calls + "]}"])
+        self.assertEqual(len(self.chat(c, "jarvis", "x", self.ALL)["tool_calls"]), 3)
+
+    def test_language_guard_keeps_tool_calls(self):
+        bad = '{"speech": "Sure, setting the alarm for six right now.", "tool_calls": [{"name": "set_alarm", "args": {"hour": 6, "minute": 0}}]}'
+        c, fr = self.client([bad, "जी, छह बजे का अलार्म लगा रहा हूँ।"])
+        j = self.chat(c, "jarvis", "alarm", self.ALL)
+        self.assertEqual(j["speech"], "जी, छह बजे का अलार्म लगा रहा हूँ।")
+        self.assertEqual(j["tool_calls"][0]["name"], "set_alarm")
+
+    def test_tool_section_only_in_prompt_when_allowed(self):
+        from tools import describe
+        p = load_personas()["jarvis"]
+        self.assertNotIn("tool_calls", build_system_prompt(p))
+        sp = build_system_prompt(p, tools=describe(["set_alarm"]))
+        self.assertIn("set_alarm", sp)
+        self.assertIn("tool_calls", sp)
+
+
 class PersonaTests(unittest.TestCase):
     def test_personas_complete_and_hindi(self):
         ps = load_personas()

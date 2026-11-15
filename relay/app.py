@@ -14,6 +14,7 @@ from prompting import (build_messages, clean_history, language_ok, load_personas
                        rewrite_request, strip_emoji)
 import requests
 
+import tools as toolmod
 from router import PROVIDERS, AllBusy, Router, load_config
 from test_page import PAGE
 
@@ -107,33 +108,45 @@ def create_app(router=None, personas=None, token=None):
         if not message:
             return jsonify(error="empty_message"), 400
 
+        allowed = toolmod.allowed_for(cid, data.get("tools"))
         messages = build_messages(persona, message, clean_history(data.get("history")),
-                                  data.get("memory"), data.get("context"))
+                                  data.get("memory"), data.get("context"),
+                                  tools=toolmod.describe(allowed) if allowed else None)
         tier = router.tier_for(cid)
         t0 = time.time()
-        base = {"character": cid, "tool_calls": [], "proposed_rule": None, "mood_delta": 0}
+        base = {"character": cid, "proposed_rule": None, "mood_delta": 0}
         try:
             res = router.complete(tier, messages)
         except AllBusy as e:
             log.warning("all busy char=%s errors=%s", cid, e.errors[-4:])
             return jsonify(speech=persona["busy_line"], degraded=True, retry_after_s=e.retry_after_s,
                            language_ok=True, provider=None, model=None,
-                           errors=e.errors[-8:], **base)
+                           errors=e.errors[-8:], tool_calls=[], **base)
 
-        text, lang_ok = res.text, language_ok(res.text)
+        if allowed:
+            text, raw_calls = toolmod.parse_output(res.text)
+        else:
+            text, raw_calls = res.text, []
+        lang_ok = language_ok(text) if text else True
         if not lang_ok:  # language guard: rewrite once on the stronger tier
             try:
-                fix = router.complete("smart", messages + rewrite_request(res.text))
-                if language_ok(fix.text):
-                    text, lang_ok, res = fix.text, True, fix
+                fix = router.complete("smart", messages + rewrite_request(text))
+                fix_text = toolmod.parse_output(fix.text)[0] if allowed else fix.text
+                if fix_text and language_ok(fix_text):
+                    text, lang_ok, res = fix_text, True, fix
             except AllBusy:
                 pass
+        calls, notes = toolmod.validate_calls(raw_calls, allowed)
+        if notes:
+            log.warning("tool calls dropped char=%s notes=%s", cid, notes)
         text = strip_emoji(text) or text
-        log.info("chat char=%s tier=%s provider=%s model=%s attempts=%d lang_ok=%s ms=%d",
-                 cid, tier, res.provider, res.model, res.attempts, lang_ok, (time.time() - t0) * 1000)
+        if not text and calls:
+            text = "ठीक है।"
+        log.info("chat char=%s tier=%s provider=%s model=%s attempts=%d lang_ok=%s tools=%s ms=%d",
+                 cid, tier, res.provider, res.model, res.attempts, lang_ok, [c["name"] for c in calls], (time.time() - t0) * 1000)
         return jsonify(speech=text, degraded=False, retry_after_s=0, language_ok=lang_ok,
                        provider=res.provider, model=res.model, attempts=res.attempts,
-                       latency_ms=int((time.time() - t0) * 1000), **base)
+                       latency_ms=int((time.time() - t0) * 1000), tool_calls=calls, tool_notes=notes, **base)
 
     app.config["ROUTER"] = router
     return app

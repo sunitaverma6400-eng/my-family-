@@ -107,6 +107,7 @@ fun Avatar(c: Character, avatarSize: Dp, active: Boolean) {
 @Composable
 fun OverlayUi(
     mode: Mode, ch: Character, said: String, busy: Boolean, waking: Boolean, input: String,
+    results: List<String>, pendingText: String?, onDecision: (Boolean) -> Unit,
     onInput: (String) -> Unit, onSend: (String) -> Unit, onPick: (Character) -> Unit,
     onBubbleTap: () -> Unit, onDrag: (Float, Float) -> Unit, onCollapse: () -> Unit, onStop: () -> Unit,
 ) {
@@ -177,7 +178,30 @@ fun OverlayUi(
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                results.forEach { line ->
+                    Text(
+                        line, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 6.dp),
+                        color = if (line.startsWith("✓")) Color(0xFF5BE38A) else Color(0xFFFF8A80),
+                    )
+                }
+                if (pendingText != null) {
+                    Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                        Text("पूछ रहा हूँ — करूँ?", color = DIM, fontSize = 12.sp)
+                        Text(pendingText, color = FG, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.padding(vertical = 4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(ch.accent)
+                                    .clickable { onDecision(true) }.padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) { Text("हाँ", color = Color.Black, fontWeight = FontWeight.Bold) }
+                            Box(
+                                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, DIM, RoundedCornerShape(12.dp))
+                                    .clickable { onDecision(false) }.padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) { Text("नहीं", color = FG) }
+                        }
+                    }
+                } else Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = input, onValueChange = onInput,
                         modifier = Modifier.weight(1f),

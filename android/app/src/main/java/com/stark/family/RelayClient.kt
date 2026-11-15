@@ -19,6 +19,7 @@ data class ChatReply(
     val languageOk: Boolean,
     val provider: String,
     val model: String,
+    val toolCalls: List<ToolCall> = emptyList(),
 )
 
 class RelayClient {
@@ -33,11 +34,15 @@ class RelayClient {
 
     suspend fun chat(
         base: String, token: String, character: String, message: String,
-        history: List<Pair<String, String>>, onWaking: (Boolean) -> Unit,
+        history: List<Pair<String, String>>,
+        tools: List<String> = emptyList(), context: JSONObject? = null,
+        onWaking: (Boolean) -> Unit,
     ): ChatReply {
         val hist = JSONArray()
         history.forEach { (role, content) -> hist.put(JSONObject().put("role", role).put("content", content)) }
         val body = JSONObject().put("character", character).put("message", message).put("history", hist)
+        if (tools.isNotEmpty()) body.put("tools", JSONArray(tools))
+        if (context != null) body.put("context", context)
         val j = request(base, "/chat", token, body.toString(), onWaking)
         return ChatReply(
             speech = j.optString("speech", ""),
@@ -46,7 +51,22 @@ class RelayClient {
             languageOk = j.optBoolean("language_ok", true),
             provider = j.optString("provider", ""),
             model = j.optString("model", ""),
+            toolCalls = parseCalls(j.optJSONArray("tool_calls")),
         )
+    }
+
+    private fun parseCalls(arr: JSONArray?): List<ToolCall> {
+        val out = mutableListOf<ToolCall>()
+        if (arr == null) return out
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val name = o.optString("name", "")
+            if (name.isEmpty()) continue
+            // Missing risk/confirm fields default to the safe side (ask first).
+            out.add(ToolCall(o.optString("id", "c$i"), name, o.optJSONObject("args") ?: JSONObject(),
+                o.optString("risk", "high"), o.optBoolean("confirm", true)))
+        }
+        return out
     }
 
     suspend fun brainStatus(base: String, token: String, onWaking: (Boolean) -> Unit): JSONObject =

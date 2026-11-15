@@ -65,16 +65,19 @@ import androidx.compose.ui.unit.sp
 class MainActivity : ComponentActivity() {
     private val vm: ChatViewModel by viewModels()
 
-    private val notifPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val permLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val need = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        ) need.add(Manifest.permission.POST_NOTIFICATIONS)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            need.add(Manifest.permission.READ_CONTACTS)  // only to find a contact's number when you ask for a call
         }
+        if (need.isNotEmpty()) permLauncher.launch(need.toTypedArray())
         setContent { StarkTheme(vm.character) { ChatScreen(vm, onBubble = { toggleBubble() }) } }
     }
 

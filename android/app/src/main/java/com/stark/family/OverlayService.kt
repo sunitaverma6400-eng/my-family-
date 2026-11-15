@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
@@ -29,6 +30,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,8 +38,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class Mode { BUBBLE, PICKER, CHAT }
+
+/** A risky action waiting for the user's yes/no. Nothing runs until answer completes with true. */
+class Pending(val text: String, val answer: CompletableDeferred<Boolean>)
 
 /** Lets Compose run inside a Service (no Activity): lifecycle + saved state + view-model store. */
 private class ServiceOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
@@ -85,6 +91,8 @@ class OverlayService : Service() {
     private var input by mutableStateOf("")
     private var busy by mutableStateOf(false)
     private var waking by mutableStateOf(false)
+    private var pending by mutableStateOf<Pending?>(null)
+    private val results = mutableStateListOf<String>()
     private val hist = mutableMapOf<String, MutableList<Pair<String, String>>>()
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -155,6 +163,8 @@ class OverlayService : Service() {
         v.setContent {
             OverlayUi(
                 mode = mode, ch = character, said = said, busy = busy, waking = waking, input = input,
+                results = results, pendingText = pending?.text,
+                onDecision = { pending?.answer?.complete(it) },
                 onInput = { input = it; scheduleCollapse() },
                 onSend = { send(it) },
                 onPick = { summon(it) },
@@ -207,6 +217,7 @@ class OverlayService : Service() {
         character = c
         said = ""
         input = ""
+        results.clear()
         changeMode(Mode.CHAT)
     }
 
@@ -214,7 +225,26 @@ class OverlayService : Service() {
         collapseJob?.cancel()
         collapseJob = scope.launch {
             delay(25_000)
-            if (!busy && input.isBlank()) changeMode(Mode.BUBBLE)
+            if (!busy && pending == null && input.isBlank()) changeMode(Mode.BUBBLE)
+        }
+    }
+
+    /** Low-risk tools run at once; anything risky waits for an explicit "हाँ" on screen. Results are honest. */
+    private suspend fun runTools(calls: List<ToolCall>) {
+        for (c in calls.take(3)) {
+            val plan = withContext(Dispatchers.IO) { Tools.plan(applicationContext, c) }
+            if (plan.description.isNotBlank() && (plan.risk != Risk.LOW || Tools.needsConfirm(c))) {
+                val ask = CompletableDeferred<Boolean>()
+                pending = Pending(plan.description, ask)
+                collapseJob?.cancel()
+                val yes = try { ask.await() } finally { pending = null }
+                if (!yes) {
+                    results.add("✗ रद्द किया: ${plan.description}")
+                    continue
+                }
+            }
+            val res = plan.run()
+            results.add((if (res.ok) "✓ " else "✗ ") + res.message)
         }
     }
 
@@ -236,15 +266,22 @@ class OverlayService : Service() {
         input = ""
         busy = true
         said = ""
+        results.clear()
         collapseJob?.cancel()
         val cid = character.id
         val h = hist.getOrPut(cid) { mutableListOf() }
         job = scope.launch {
             try {
-                val r = client.chat(prefs.relayUrl, prefs.token, cid, t, h.takeLast(8)) { waking = it }
-                said = r.speech.ifBlank { "..." }
+                val r = client.chat(
+                    prefs.relayUrl, prefs.token, cid, t, h.takeLast(8),
+                    tools = Tools.NAMES, context = Tools.context(),
+                ) { waking = it }
+                said = r.speech.ifBlank { if (r.toolCalls.isEmpty()) "..." else "ठीक है।" }
                 h.add("user" to t)
                 h.add("assistant" to r.speech)
+                busy = false
+                waking = false
+                runTools(r.toolCalls)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RelayClient.RelayException) {
@@ -254,6 +291,7 @@ class OverlayService : Service() {
             } finally {
                 busy = false
                 waking = false
+                pending = null
             }
             scheduleCollapse()
         }
