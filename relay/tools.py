@@ -65,6 +65,7 @@ def _fact(v):
 
 
 VALIDATORS = {
+    "screen_task": lambda a: {"goal": _str(a.get("goal"), 300)},
     "remember_fact": lambda a: {"fact": _fact(a.get("fact")), "importance": _int(a.get("importance", 3), 1, 5)},
     "set_alarm": lambda a: {"hour": _int(a.get("hour"), 0, 23), "minute": _int(a.get("minute", 0), 0, 59),
                             "label": _str(a.get("label"), 40, required=False)},

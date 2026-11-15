@@ -39,5 +39,17 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Floating family assistant bubble drawn over other apps when the user turns it on" />
         </service>
+        <service
+            android:name=".AgentAccessibilityService"
+            android:exported="false"
+            android:label="Stark Family एजेंट"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
     </application>
 </manifest>

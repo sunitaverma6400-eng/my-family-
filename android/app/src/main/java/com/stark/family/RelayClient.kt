@@ -70,6 +70,27 @@ class RelayClient {
         return out
     }
 
+    /** Agent Engine: ask the relay for ONE next screen action. Returns null when the relay is busy. */
+    suspend fun agentStep(
+        base: String, token: String, character: String, goal: String, steps: List<StepRec>,
+        pkg: String, screen: String, hint: String,
+    ): AgentStep? {
+        val arr = JSONArray()
+        steps.forEach { arr.put(JSONObject().put("n", it.n).put("action", it.action).put("target", it.target).put("result", it.result)) }
+        val body = JSONObject().put("character", character).put("goal", goal).put("steps", arr)
+            .put("screen", JSONObject().put("package", pkg).put("text", screen)).put("hint", hint)
+        val j = request(base, "/agent/step", token, body.toString()) { }
+        if (j.optBoolean("degraded", false)) return null
+        val o = j.optJSONObject("step") ?: return null
+        return AgentStep(
+            action = o.optString("action"), target = if (o.isNull("target")) null else o.optInt("target", -1).takeIf { it >= 0 },
+            app = o.optString("app"), text = o.optString("text"), direction = o.optString("direction", "down"),
+            say = o.optString("say"), reason = o.optString("reason"), expect = o.optString("expect"),
+            changesState = o.optBoolean("changes_state", false), injection = o.optBoolean("injection", false),
+            report = o.optString("report"),
+        )
+    }
+
     /** Memory ladder helper. Returns null when the relay is busy (try again later). */
     suspend fun summarize(base: String, token: String, kind: String, items: JSONArray, profilePrev: String? = null): JSONObject? {
         val body = JSONObject().put("kind", kind).put("items", items)
@@ -145,3 +166,11 @@ fun formatBrain(j: JSONObject): String {
     }
     return sb.toString()
 }
+
+data class StepRec(val n: Int, val action: String, val target: String, val result: String)
+
+data class AgentStep(
+    val action: String, val target: Int?, val app: String, val text: String, val direction: String,
+    val say: String, val reason: String, val expect: String, val changesState: Boolean, val injection: Boolean,
+    val report: String,
+)

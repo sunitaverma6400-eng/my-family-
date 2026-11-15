@@ -108,6 +108,7 @@ fun Avatar(c: Character, avatarSize: Dp, active: Boolean) {
 fun OverlayUi(
     mode: Mode, ch: Character, said: String, busy: Boolean, waking: Boolean, input: String,
     results: List<String>, pendingText: String?, onDecision: (Boolean) -> Unit,
+    hud: AgentHud, onResume: () -> Unit,
     onInput: (String) -> Unit, onSend: (String) -> Unit, onPick: (Character) -> Unit,
     onBubbleTap: () -> Unit, onDrag: (Float, Float) -> Unit, onCollapse: () -> Unit, onStop: () -> Unit,
 ) {
@@ -139,6 +140,39 @@ fun OverlayUi(
                         Column(Modifier.clickable { onPick(c) }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Avatar(c, 52.dp, false)
                             Text(c.name, color = c.accent, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            Mode.WORKING -> Column(
+                Modifier.width(300.dp).clip(RoundedCornerShape(18.dp)).background(CARD)
+                    .border(1.dp, ch.accent, RoundedCornerShape(18.dp)).padding(10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(ch, 40.dp, true)
+                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                        Text("${ch.name} · क़दम ${hud.step}/${hud.max}", color = ch.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(hud.line.ifBlank { "काम कर रहा हूँ…" }, color = FG, fontSize = 13.sp, maxLines = 2)
+                    }
+                    if (hud.paused) TextButton(onClick = onResume) { Text("▶", color = Color(0xFF5BE38A), fontSize = 20.sp) }
+                    TextButton(onClick = onStop) { Text("⏹", color = Color(0xFFFF5D5D), fontSize = 20.sp) }
+                }
+                if (hud.paused) Text("आपने स्क्रीन छुई, इसलिए रुका हूँ। ▶ से जारी रखिए, ⏹ से रोकिए।", color = DIM, fontSize = 12.sp)
+                if (pendingText != null) {
+                    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        Text(pendingText, color = FG, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(bottom = 6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(ch.accent)
+                                    .clickable { onDecision(true) }.padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) { Text("हाँ", color = Color.Black, fontWeight = FontWeight.Bold) }
+                            Box(
+                                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, DIM, RoundedCornerShape(12.dp))
+                                    .clickable { onDecision(false) }.padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) { Text("नहीं", color = FG) }
                         }
                     }
                 }

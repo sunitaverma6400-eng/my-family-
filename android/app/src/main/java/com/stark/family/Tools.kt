@@ -32,6 +32,7 @@ object Tools {
     private val RISK = mapOf(
         "set_alarm" to Risk.LOW, "set_timer" to Risk.LOW, "set_reminder" to Risk.LOW,
         "open_app" to Risk.LOW, "torch" to Risk.LOW, "call_contact" to Risk.HIGH, "remember_fact" to Risk.LOW,
+        "screen_task" to Risk.LOW,
     )
     val NAMES: List<String> = RISK.keys.toList()
 
@@ -105,6 +106,7 @@ object Tools {
                     else ToolResult(false, "यह याद नहीं रखा (बहुत छोटी या संवेदनशील बात)।")
                 }
             }
+            "screen_task" -> fail("स्क्रीन-काम सिर्फ़ बबल से चलता है।")
             "call_contact" -> planCall(ctx, c.args.getString("contact"))
             else -> fail("यह औज़ार मेरे पास नहीं है: ${c.name}")
         }
@@ -122,7 +124,7 @@ object Tools {
 
     private fun norm(s: String) = s.lowercase().filter { !it.isWhitespace() && it != '-' && it != '.' && it != '_' }
 
-    private fun openApp(ctx: Context, asked: String): ToolResult {
+    fun openApp(ctx: Context, asked: String): ToolResult {
         val pm = ctx.packageManager
         val q = norm(ALIASES[asked.trim()] ?: asked)
         val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)

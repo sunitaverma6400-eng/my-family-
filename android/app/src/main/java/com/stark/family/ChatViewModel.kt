@@ -45,6 +45,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var showSettings by mutableStateOf(prefs.relayUrl.isBlank() || prefs.token.isBlank())
     var brainText by mutableStateOf<String?>(null)
     var showMemory by mutableStateOf(false)
+    var showActivity by mutableStateOf(false)
 
     init {
         viewModelScope.launch { repo.maintain(relayUrl, token) }

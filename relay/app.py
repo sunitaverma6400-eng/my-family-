@@ -14,6 +14,7 @@ from prompting import (build_messages, clean_history, language_ok, load_personas
                        rewrite_request, strip_emoji)
 import requests
 
+import agent as agentmod
 import memorykit
 import tools as toolmod
 from router import PROVIDERS, AllBusy, Router, load_config
@@ -103,6 +104,29 @@ def create_app(router=None, personas=None, token=None):
             log.warning("summarize bad json kind=%s", kind)
             return jsonify(degraded=True, retry_after_s=60, errors=["bad_json"])
         return jsonify(degraded=False, provider=res.provider, model=res.model, **out)
+
+    @app.post("/agent/step")
+    def agent_step():
+        """Agent Engine: returns ONE next screen action as strict JSON. Permissions are checked here and on the phone."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        cid = data.get("character")
+        persona = personas.get(cid)
+        if persona is None or "screen_task" not in toolmod.allowed_for(cid, ["screen_task"]):
+            return jsonify(error="not_allowed"), 403
+        if not str(data.get("goal") or "").strip():
+            return jsonify(error="bad_request"), 400
+        msgs = agentmod.build_messages(persona, data)
+        try:
+            res = router.complete(router.tier_for(cid), msgs, temperature=0.2, max_tokens=900)
+        except AllBusy as e:
+            return jsonify(degraded=True, retry_after_s=e.retry_after_s, errors=e.errors[-4:])
+        step = agentmod.parse_step(res.text)
+        if step is None:
+            log.warning("agent bad step char=%s", cid)
+            return jsonify(degraded=True, retry_after_s=5, errors=["bad_step"])
+        return jsonify(degraded=False, step=step, provider=res.provider, model=res.model)
 
     @app.get("/characters")
     def characters():

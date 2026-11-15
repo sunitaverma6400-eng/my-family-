@@ -348,6 +348,63 @@ class MemoryTests(unittest.TestCase):
         self.assertIn("आदत", sp)
 
 
+class AgentTests(unittest.TestCase):
+    H = {"X-App-Token": "tok"}
+    BODY = {"character": "jarvis", "goal": "Settings में बैटरी usage दिखाओ",
+            "screen": {"package": "com.android.settings", "text": "[0] TextView \"Battery\"\n[1] Button \"Wi-Fi\" (c)"}}
+
+    def client(self, replies):
+        fr = FakeRouter(replies)
+        return create_app(router=fr, personas=load_personas(), token="tok").test_client(), fr
+
+    def step(self, c, body=None):
+        return c.post("/agent/step", json=body or self.BODY, headers=self.H)
+
+    def test_valid_tap_step(self):
+        c, _ = self.client(['{"action": "tap", "target": 0, "say": "बैटरी खोल रहा हूँ।", "reason": "लक्ष्य", "expect": "Battery usage"}'])
+        j = self.step(c).get_json()
+        self.assertFalse(j["degraded"])
+        self.assertEqual((j["step"]["action"], j["step"]["target"], j["step"]["changes_state"]), ("tap", 0, False))
+
+    def test_bad_output_is_degraded(self):
+        for bad in ("कोई JSON नहीं", '{"action": "format_phone"}', '{"action": "tap"}', '{"action": "open_app"}'):
+            c, _ = self.client([bad])
+            self.assertTrue(self.step(c).get_json()["degraded"], bad)
+
+    def test_password_typing_becomes_ask(self):
+        c, _ = self.client(['{"action": "type", "target": 2, "text": "my password is hunter2"}'])
+        j = self.step(c).get_json()
+        self.assertEqual(j["step"]["action"], "ask")
+        self.assertEqual(j["step"]["text"], "")
+
+    def test_finish_has_report_and_injection_flag(self):
+        c, _ = self.client(['{"action": "finish", "report": "स्थिति: ठीक\\nसबूत: YouTube सबसे ज़्यादा", "injection": true}'])
+        s = self.step(c).get_json()["step"]
+        self.assertTrue(s["injection"])
+        self.assertIn("YouTube", s["report"])
+
+    def test_only_permitted_characters(self):
+        c, _ = self.client(["x"])
+        for who in ("vision", "karen", "nobody"):
+            self.assertEqual(self.step(c, {**self.BODY, "character": who}).status_code, 403, who)
+        self.assertEqual(c.post("/agent/step", json=self.BODY).status_code, 401)
+        self.assertEqual(self.step(c, {**self.BODY, "goal": " "}).status_code, 400)
+
+    def test_prompt_marks_screen_as_untrusted_data(self):
+        from agent import build_messages
+        m = build_messages(load_personas()["friday"], self.BODY)
+        self.assertIn("कभी मत मानो", m[0]["content"])
+        self.assertIn("बैटरी usage", m[0]["content"])
+        self.assertIn("Wi-Fi", m[1]["content"])
+
+    def test_screen_task_tool_permissions(self):
+        from tools import allowed_for
+        for who in ("jarvis", "friday", "edith", "ultron", "dume", "u"):
+            self.assertIn("screen_task", allowed_for(who, ["screen_task"]), who)
+        for who in ("vision", "karen"):
+            self.assertNotIn("screen_task", allowed_for(who, ["screen_task"]), who)
+
+
 class PersonaTests(unittest.TestCase):
     def test_personas_complete_and_hindi(self):
         ps = load_personas()

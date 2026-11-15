@@ -35,6 +35,11 @@
       "risk": "low",
       "desc": "उपयोगकर्ता के बारे में कोई स्थायी बात याददाश्त में सहेजना",
       "args": "{\"fact\": \"एक वाक्य में बात\", \"importance\": 1-5}"
+    },
+    "screen_task": {
+      "risk": "low",
+      "desc": "फ़ोन की स्क्रीन पर ख़ुद ऐप खोलकर, स्क्रॉल/टैप करके कुछ देखना, खोजना या जाँचना और रिपोर्ट देना (कुछ बदलने से पहले उपयोगकर्ता से हमेशा पूछा जाता है)",
+      "args": "{\"goal\": \"पूरा काम एक-दो वाक्य में\"}"
     }
   },
   "permissions": {
@@ -45,35 +50,41 @@
       "open_app",
       "torch",
       "call_contact",
-      "remember_fact"
+      "remember_fact",
+      "screen_task"
     ],
     "friday": [
       "set_alarm",
       "set_timer",
       "set_reminder",
       "open_app",
-      "remember_fact"
+      "remember_fact",
+      "screen_task"
     ],
     "edith": [
       "torch",
       "open_app",
-      "remember_fact"
+      "remember_fact",
+      "screen_task"
     ],
     "dume": [
       "torch",
       "open_app",
-      "remember_fact"
+      "remember_fact",
+      "screen_task"
     ],
     "u": [
       "torch",
       "open_app",
-      "remember_fact"
+      "remember_fact",
+      "screen_task"
     ],
     "vision": [
       "remember_fact"
     ],
     "ultron": [
-      "remember_fact"
+      "remember_fact",
+      "screen_task"
     ],
     "karen": [
       "remember_fact"
