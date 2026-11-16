@@ -1,5 +1,7 @@
 name: Build debug APK
 
+run-name: "APK build — ${{ github.event.head_commit.message || 'manual run' }}"
+
 on:
   push:
     branches: [main]
@@ -8,6 +10,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build:
@@ -27,17 +32,42 @@ jobs:
       - name: Build debug APK
         run: gradle -p android assembleDebug --no-daemon --stacktrace
 
+      - name: APK details
+        id: apk
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          VER=$(grep -m1 'versionName' android/app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          SIZE=$(du -h "$APK" | cut -f1)
+          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         with:
           name: StarkFamily-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
-      # Easy phone download: Releases page -> "debug-latest" -> app-debug.apk
+      # Release asset = the plain .apk (no zip). If this step fails the run turns red, so you notice.
       - name: Publish to Releases
-        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: debug-latest
           name: Stark Family debug (latest)
+          body: "version ${{ steps.apk.outputs.ver }} · ${{ steps.apk.outputs.size }} · sha256 ${{ steps.apk.outputs.sha }}"
           prerelease: true
+          overwrite_files: true
           files: android/app/build/outputs/apk/debug/app-debug.apk
+
+      # Shows up at the bottom of the run's Summary page: tap the link to download the APK directly.
+      - name: Download links in the Summary
+        run: |
+          {
+            echo "## ⬇ APK डाउनलोड (version ${{ steps.apk.outputs.ver }}, ${{ steps.apk.outputs.size }})"
+            echo ""
+            echo "**सीधा APK:** https://github.com/${{ github.repository }}/releases/download/debug-latest/app-debug.apk"
+            echo ""
+            echo "Releases पन्ना: https://github.com/${{ github.repository }}/releases/tag/debug-latest"
+            echo ""
+            echo "sha256: \`${{ steps.apk.outputs.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

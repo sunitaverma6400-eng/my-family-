@@ -15,6 +15,6 @@ git config user.name >/dev/null 2>&1 || git config user.name "stark-user"
 git config user.email >/dev/null 2>&1 || git config user.email "stark-user@users.noreply.github.com"
 git checkout -B main
 git add -A
-if git diff --cached --quiet; then echo "कुछ नया नहीं।"; else git commit -m "S1: relay + /test page + /diag"; fi
+if git diff --cached --quiet; then echo "कुछ नया नहीं।"; else git commit -m "Update: $(basename "$ZIP" .zip) $(date +%F_%H%M)"; fi
 git push -u origin main
 echo "✅ Push हो गया। अब Render में इस repo से Blueprint बनाइए (SETUP.md देखिए)।"

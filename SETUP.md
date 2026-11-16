@@ -49,3 +49,7 @@ GitHub > Actions > "Build debug APK" हरा होने पर > Releases > 
 - वह हर सेवा खोलकर स्थिति, ताज़ा deploys, error लॉग और आँकड़े देखता है, फिर रिपोर्ट कार्ड देता है (कॉपी और "फिर जाँचो" बटन के साथ)। restart/deploy/मिटाना वह कभी ख़ुद नहीं करता।
 - चार्ट/सुरक्षित-नहीं स्क्रीन पढ़ने के लिए vision चाहिए: Render में GEMINI_KEYS सही कीजिए (aistudio.google.com से नई key) और /test > "मॉडल जाँच" में gemini का नाम `true` देखिए।
 - 📋 में "एजेंट की सीमाएँ": क़दम-सीमा और "इन ऐप्स में कभी नहीं" सूची।
+
+## APK डाउनलोड (हर build के बाद)
+GitHub > Actions > सबसे ऊपर वाली run खोलिए > **Summary** पन्ने के नीचे "⬇ APK डाउनलोड" में सीधा लिंक है (version, साइज़, sha256 के साथ)। वही लिंक Releases > debug-latest > app-debug.apk भी है।
+Release वाला चरण फ़ेल हो तो run लाल दिखेगी (पहले वह चुपचाप छूट जाता था)।
