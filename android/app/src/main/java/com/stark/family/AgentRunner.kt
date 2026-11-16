@@ -232,13 +232,15 @@ class AgentRunner(
                     snap2.hash == tree.hash -> "कोई असर नहीं दिखा"
                     else -> "ठीक"
                 }
+                // 'expect' is only a hint from the model (often a description, not a word on screen), so a miss is
+                // reported to the model but never counted as a failed step.
                 if (result == "ठीक" && st.expect.isNotBlank() && !snap2.text.contains(st.expect, ignoreCase = true)) {
-                    result = "स्क्रीन बदली, पर '${st.expect}' नहीं दिखा"
+                    result = "ठीक (स्क्रीन बदली; '${st.expect}' शब्द नहीं दिखा, अगले क़दम में ख़ुद देखकर तय करो)"
                 }
                 history.add(StepRec(n, st.action, label, result))
                 dao.insertStep(AgentStepLog(runId = run.id, n = n, ts = System.currentTimeMillis(), action = st.action, target = label, reason = st.reason, result = result, confirmed = confirmedNote))
 
-                if (result == "ठीक") {
+                if (result.startsWith("ठीक")) {
                     failStreak = 0
                     hint = ""
                 } else {
