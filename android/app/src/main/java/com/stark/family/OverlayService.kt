@@ -53,7 +53,7 @@ import kotlinx.coroutines.withContext
 enum class Mode { BUBBLE, PICKER, CHAT, WORKING }
 
 /** What the small "working" strip shows while a screen task runs. */
-data class AgentHud(val line: String = "", val step: Int = 0, val max: Int = AgentRunner.MAX_STEPS, val paused: Boolean = false)
+data class AgentHud(val line: String = "", val step: Int = 0, val max: Int = AgentRunner.MAX_STEPS, val paused: Boolean = false, val sending: Boolean = false)
 
 /** Click-through full-screen layer that outlines the element about to be tapped. */
 class HighlightView(ctx: Context, private val color: Int) : View(ctx) {
@@ -126,6 +126,9 @@ class OverlayService : Service() {
     private var waking by mutableStateOf(false)
     private var pending by mutableStateOf<Pending?>(null)
     private var hud by mutableStateOf(AgentHud())
+    private var report by mutableStateOf<String?>(null)
+    private var lastGoal = ""
+    private var lastWho = ""
     private var agentRunning by mutableStateOf(false)
     private var pauseGate: CompletableDeferred<Unit>? = null
     private var ignoreTouchUntil = 0L
@@ -215,7 +218,7 @@ class OverlayService : Service() {
         v.setContent {
             OverlayUi(
                 mode = mode, ch = character, said = said, busy = busy, waking = waking, input = input,
-                results = results, pendingText = pending?.text, hud = hud, onResume = { resume() },
+                results = results, pendingText = pending?.text, hud = hud, onResume = { resume() }, report = report, onRerun = { rerun() },
                 onDecision = { pending?.answer?.complete(it) },
                 onInput = { input = it; scheduleCollapse() },
                 onSend = { send(it) },
@@ -266,6 +269,7 @@ class OverlayService : Service() {
         character = c
         said = ""
         input = ""
+        report = null
         results.clear()
         changeMode(Mode.CHAT)
     }
@@ -351,6 +355,12 @@ class OverlayService : Service() {
             override fun status(step: Int, max: Int) { hud = hud.copy(step = step, max = max) }
             override fun highlight(r: Rect?) = showHighlight(r)
             override fun markGesture() { ignoreTouchUntil = System.currentTimeMillis() + 1800 }
+            override fun sending(on: Boolean) { hud = hud.copy(sending = on) }
+            override suspend fun hideForCapture(hide: Boolean) {
+                view?.visibility = if (hide) View.INVISIBLE else View.VISIBLE
+                highlightView?.visibility = if (hide) View.INVISIBLE else View.VISIBLE
+                if (hide) delay(280)
+            }
             override suspend fun confirm(text: String): Boolean {
                 val ask = CompletableDeferred<Boolean>()
                 pending = Pending(text, ask)
@@ -358,13 +368,16 @@ class OverlayService : Service() {
             }
             override suspend fun awaitIfPaused() { pauseGate?.await() }
         }
+        lastGoal = goal
+        lastWho = who
+        report = null
         agentRunning = true
         pauseGate = null
-        hud = AgentHud(line = "शुरू कर रहा हूँ…")
+        hud = AgentHud(line = "शुरू कर रहा हूँ…", max = prefs.agentMaxSteps)
         changeMode(Mode.WORKING)
         var out: AgentOutcome? = null
         try {
-            out = AgentRunner(applicationContext, client, ui).run(goal, who, prefs.relayUrl, prefs.token)
+            out = AgentRunner(applicationContext, client, ui, prefs.agentMaxSteps, prefs.blockedPkgs).run(goal, who, prefs.relayUrl, prefs.token)
         } finally {
             agentRunning = false
             pauseGate = null
@@ -372,7 +385,9 @@ class OverlayService : Service() {
             changeMode(Mode.CHAT)
         }
         val o = out ?: return
-        said = o.report
+        val structured = o.report.contains("स्थिति:")
+        report = if (structured) o.report else null
+        said = if (structured) "" else o.report
         results.add(
             when (o.status) {
                 "ok" -> "✓ काम पूरा (${o.steps} क़दम)"
@@ -383,6 +398,23 @@ class OverlayService : Service() {
             },
         )
         repo.addEpisode(who, "[स्क्रीन-काम] $goal", o.report, "screen_task")
+    }
+
+    private fun rerun() {
+        if (agentRunning || lastGoal.isBlank()) return
+        results.clear()
+        report = null
+        said = ""
+        job = scope.launch {
+            try {
+                runAgent(lastGoal, lastWho)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                said = "कुछ गड़बड़ हुई।"
+            }
+            scheduleCollapse()
+        }
     }
 
     private fun stopTask() {
@@ -404,6 +436,7 @@ class OverlayService : Service() {
         input = ""
         busy = true
         said = ""
+        report = null
         results.clear()
         collapseJob?.cancel()
         val cid = character.id

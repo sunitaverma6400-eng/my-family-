@@ -1,5 +1,5 @@
 {
-  "_note": "Model names live here, never in code. 'params' are extra request fields for that model. Check /test > मॉडल जाँच for names your keys can use.",
+  "_note": "Model names live here, never in code. 'params' are extra request fields for that model. Check /test > मॉडल जाँच for names your keys can use. Tier 'vision' is used for screenshots; it needs an image-capable model (check मॉडल जाँच > free_models for OpenRouter).",
   "request": {
     "timeout_s": 30,
     "max_attempts_per_provider": 3,
@@ -52,6 +52,16 @@
       {
         "provider": "openrouter",
         "model": "meta-llama/llama-3.3-70b-instruct:free"
+      }
+    ],
+    "vision": [
+      {
+        "provider": "gemini",
+        "model": "gemini-3-flash-preview"
+      },
+      {
+        "provider": "openrouter",
+        "model": "google/gemma-3-27b-it:free"
       }
     ]
   },

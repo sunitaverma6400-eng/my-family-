@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -157,6 +159,7 @@ fun ActivityScreen(ch: Character, onClose: () -> Unit) {
                     }
                 }
             }
+            item { AgentSettings(ch) }
             if (runs.isEmpty()) item { Text("अभी कोई स्क्रीन-काम नहीं हुआ। बबल में Jarvis से कहिए: 'Settings खोलकर बैटरी usage दिखाओ'।", color = DIM) }
             items(runs) { r ->
                 val who = Characters.byId(r.character)
@@ -203,6 +206,78 @@ fun ActivityScreen(ch: Character, onClose: () -> Unit) {
                 }) { Text("हाँ", color = RED) }
             },
             dismissButton = { TextButton(onClick = { wipe = false }) { Text("नहीं", color = DIM) } },
+        )
+    }
+}
+
+private fun appLabel(ctx: Context, pkg: String): String = try {
+    val pm = ctx.packageManager
+    pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+} catch (e: Exception) {
+    pkg
+}
+
+private fun launchableApps(ctx: Context): List<Pair<String, String>> {
+    val pm = ctx.packageManager
+    return pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+        .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+        .distinctBy { it.second }
+        .sortedBy { it.first.lowercase() }
+}
+
+/** The agent's limits: how many steps per task, and apps where it must never run. */
+@Composable
+private fun AgentSettings(ch: Character) {
+    val ctx = LocalContext.current
+    val prefs = remember { Prefs(ctx) }
+    var max by remember { mutableIntStateOf(prefs.agentMaxSteps) }
+    var blocked by remember { mutableStateOf(prefs.blockedPkgs) }
+    var pick by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(CARD)
+            .border(1.dp, Color(0xFF222222), RoundedCornerShape(14.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("⚙ एजेंट की सीमाएँ", color = ch.accent, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("एक काम में ज़्यादा से ज़्यादा क़दम: $max", color = FG, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = { max = (max - 5).coerceAtLeast(10); prefs.agentMaxSteps = max }) { Text("−", color = ch.accent, fontSize = 22.sp) }
+            TextButton(onClick = { max = (max + 5).coerceAtMost(80); prefs.agentMaxSteps = max }) { Text("＋", color = ch.accent, fontSize = 22.sp) }
+        }
+        Text("इन ऐप्स में एजेंट कभी नहीं चलेगा (बैंक/पेमेंट/पासवर्ड ऐप वैसे भी बिना आपकी हाँ के नहीं चलते):", color = DIM, fontSize = 12.sp)
+        if (blocked.isEmpty()) Text("— कोई नहीं —", color = DIM, fontSize = 12.sp)
+        blocked.sorted().forEach { pkg ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(appLabel(ctx, pkg), color = FG, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { blocked = blocked - pkg; prefs.blockedPkgs = blocked }) { Text("✕ हटाओ", color = RED, fontSize = 12.sp) }
+            }
+        }
+        TextButton(onClick = { pick = true }) { Text("＋ ऐप जोड़ो", color = ch.accent) }
+    }
+    if (pick) {
+        val apps = remember { launchableApps(ctx) }
+        var q by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { pick = false },
+            title = { Text("किस ऐप में एजेंट बंद करें?", color = FG) },
+            text = {
+                Column {
+                    OutlinedTextField(value = q, onValueChange = { q = it }, singleLine = true, placeholder = { Text("खोजिए…", color = DIM) })
+                    LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                        items(apps.filter { q.isBlank() || it.first.contains(q, ignoreCase = true) }) { a ->
+                            Text(
+                                a.first, color = if (a.second in blocked) DIM else FG, fontSize = 15.sp,
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    blocked = blocked + a.second
+                                    prefs.blockedPkgs = blocked
+                                    pick = false
+                                }.padding(vertical = 10.dp),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { pick = false }) { Text("बंद", color = DIM) } },
         )
     }
 }

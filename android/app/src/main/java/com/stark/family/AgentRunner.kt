@@ -16,6 +16,8 @@ interface AgentUi {
     fun status(step: Int, max: Int)
     fun highlight(r: Rect?)
     fun markGesture()
+    fun sending(on: Boolean)
+    suspend fun hideForCapture(hide: Boolean)
     suspend fun confirm(text: String): Boolean
     suspend fun awaitIfPaused()
 }
@@ -35,10 +37,13 @@ class AgentRunner(
     private val ctx: Context,
     private val client: RelayClient,
     private val ui: AgentUi,
+    private val maxSteps: Int = MAX_STEPS,
+    private val blocked: Set<String> = emptySet(),
 ) {
     companion object {
         const val MAX_STEPS = 30
         const val MAX_MS = 5 * 60_000L
+        const val MAX_VISION = 12
 
         private val SENSITIVE_PKG = listOf(
             "bank", "upi", "paytm", "phonepe", "paisa", "bhim", "wallet", "authenticator", "authy", "2fa", "otp",
@@ -69,6 +74,29 @@ class AgentRunner(
 
     private val dao = ActivityDb.get(ctx).dao()
 
+    private var visionCalls = 0
+
+    /** Screenshot -> relay vision tier. Overlay is hidden while capturing; the picture lives only in memory. */
+    private suspend fun look(svc: AgentAccessibilityService, character: String, question: String, base: String, token: String): Pair<VisionResult?, String> {
+        if (visionCalls >= MAX_VISION) return null to "स्क्रीनशॉट पढ़ने की सीमा ($MAX_VISION बार) पूरी हो गई।"
+        visionCalls++
+        ui.hideForCapture(true)
+        val bmp = try { svc.screenshot() } finally { ui.hideForCapture(false) }
+            ?: return null to "स्क्रीनशॉट नहीं मिला (Android 11+ चाहिए, या यह स्क्रीन सुरक्षित/FLAG_SECURE है)।"
+        val m = ctx.resources.displayMetrics
+        val b64 = withContext(Dispatchers.Default) { svc.encodeForVision(bmp) }
+            ?: return null to "स्क्रीन काली/सुरक्षित है, मैं उसे पढ़ नहीं सकता।"
+        ui.sending(true)
+        val v = try {
+            client.agentLook(base, token, character, question, b64, m.widthPixels, m.heightPixels)
+        } catch (e: RelayClient.RelayException) {
+            return null to (e.message ?: "relay से जवाब नहीं मिला।")
+        } finally {
+            ui.sending(false)
+        }
+        return if (v == null) null to "दृश्य-मॉडल अभी उपलब्ध नहीं है (relay में Gemini key या vision model जाँचिए)।" else v to ""
+    }
+
     private suspend fun finishRun(run: AgentRun, status: String, report: String, steps: Int): AgentOutcome {
         withContext(NonCancellable) { dao.updateRun(run.copy(status = status, report = report.take(1500), steps = steps)) }
         return AgentOutcome(status, report, steps)
@@ -89,30 +117,43 @@ class AgentRunner(
         var emptyTries = 0
         var relayFails = 0
         var hint = ""
+        var visionCache: Pair<Int, VisionResult>? = null
         try {
             while (true) {
                 coroutineContext.ensureActive()
                 ui.awaitIfPaused()
-                if (n >= MAX_STEPS) return finishRun(run, "limit", "$MAX_STEPS क़दम की सीमा पूरी हो गई, काम पूरा नहीं हुआ।\nअब तक: ${history.takeLast(4).joinToString("; ") { it.action + " " + it.target }}", n)
+                if (n >= maxSteps) return finishRun(run, "limit", "$maxSteps क़दम की सीमा पूरी हो गई, काम पूरा नहीं हुआ।\nअब तक: ${history.takeLast(4).joinToString("; ") { it.action + " " + it.target }}", n)
                 if (System.currentTimeMillis() - started > MAX_MS) return finishRun(run, "limit", "समय सीमा (${MAX_MS / 60_000} मिनट) पूरी हो गई, काम पूरा नहीं हुआ।", n)
                 val svc = AgentAccessibilityService.instance ?: return finishRun(run, "failed", "Accessibility बंद हो गई, इसलिए रुक गया।", n)
 
-                val snap = withContext(Dispatchers.Default) { svc.snapshot() }
-                if (snap.pkg.isNotEmpty() && isSensitivePkg(snap.pkg) && snap.pkg !in unlocked) {
-                    val ok = ui.confirm("यह संवेदनशील ऐप लगता है (${snap.pkg}). इस काम में इसमें चलने दूँ? पासवर्ड, OTP और कार्ड नंबर मैं कभी नहीं पढ़ूँगा या लिखूँगा।")
+                val tree = withContext(Dispatchers.Default) { svc.snapshot() }
+                if (tree.pkg.isNotEmpty() && tree.pkg in blocked) {
+                    return finishRun(run, "stopped", "इस ऐप (${tree.pkg}) पर आपने एजेंट बंद कर रखा है, इसलिए रुक गया।", n)
+                }
+                if (tree.pkg.isNotEmpty() && isSensitivePkg(tree.pkg) && tree.pkg !in unlocked) {
+                    val ok = ui.confirm("यह संवेदनशील ऐप लगता है (${tree.pkg}). इस काम में इसमें चलने दूँ? पासवर्ड, OTP और कार्ड नंबर मैं कभी नहीं पढ़ूँगा या लिखूँगा।")
                     if (!ok) return finishRun(run, "stopped", "संवेदनशील ऐप में काम नहीं किया।", n)
-                    unlocked.add(snap.pkg)
+                    unlocked.add(tree.pkg)
                 }
-                if (snap.empty) {
-                    if (emptyTries++ < 2) { delay(900); continue }
-                    return finishRun(run, "failed", "इस स्क्रीन से कुछ पढ़ नहीं पाया (ऐप सुरक्षित/FLAG_SECURE हो सकता है, या स्क्रीन ख़ाली या वेब-कैनवास है)। झूठ नहीं बोलूँगा: यहाँ मैं अंधा हूँ।", n)
+                var snap = tree
+                val m = ctx.resources.displayMetrics
+                if (tree.empty) {
+                    if (emptyTries++ < 1) { delay(900); continue }
+                    val (v, why) = look(svc, character, "इस स्क्रीन पर क्या-क्या दिख रहा है? दबाने लायक चीज़ें कहाँ हैं?", base, token)
+                    if (v == null) return finishRun(run, "failed", "इस स्क्रीन से कुछ पढ़ नहीं पाया: $why झूठ नहीं बोलूँगा, यहाँ मैं अंधा हूँ।", n)
+                    snap = tree.withVision(v, m.widthPixels, m.heightPixels)
+                } else {
+                    emptyTries = 0
+                    visionCache?.takeIf { it.first == tree.hash }?.let { snap = tree.withVision(it.second, m.widthPixels, m.heightPixels) }
                 }
-                emptyTries = 0
 
+                ui.sending(true)
                 val st = try {
                     client.agentStep(base, token, character, goal, history.takeLast(8), snap.pkg, snap.text, hint)
                 } catch (e: RelayClient.RelayException) {
                     return finishRun(run, "failed", e.message ?: "relay से जवाब नहीं मिला।", n)
+                } finally {
+                    ui.sending(false)
                 }
                 if (st == null) {
                     if (++relayFails >= 3) return finishRun(run, "failed", "अभी दिमाग़ (relay) व्यस्त है, थोड़ी देर बाद फिर कहिए।", n)
@@ -131,7 +172,26 @@ class AgentRunner(
                 if (st.action == "ask") return finishRun(run, "ask", st.say.ifBlank { st.report }, n)
 
                 n++
-                ui.status(n, MAX_STEPS)
+                ui.status(n, maxSteps)
+
+                if (st.action == "calc") {
+                    val v = Calc.eval(st.text)
+                    val res = if (v == null) "हिसाब नहीं हो पाया" else "= ${Calc.fmt(v)}"
+                    history.add(StepRec(n, "calc", st.text.take(60), res))
+                    dao.insertStep(AgentStepLog(runId = run.id, n = n, ts = System.currentTimeMillis(), action = "calc", target = st.text.take(60), reason = st.reason, result = res))
+                    hint = if (v == null) "calc की अभिव्यक्ति सही नहीं थी; सिर्फ़ अंक और + - * / ( ) % ." else ""
+                    continue
+                }
+                if (st.action == "look") {
+                    val (v, why) = look(svc, character, st.text, base, token)
+                    val res = if (v == null) "विफल: $why" else v.summary.take(200)
+                    history.add(StepRec(n, "look", st.text.take(40), res))
+                    dao.insertStep(AgentStepLog(runId = run.id, n = n, ts = System.currentTimeMillis(), action = "look", target = st.text.take(60), reason = st.reason, result = res))
+                    if (v != null && !tree.empty) visionCache = tree.hash to v
+                    if (v == null && ++failStreak >= 2) return finishRun(run, "ask", "स्क्रीनशॉट पढ़ नहीं पा रहा: $why आप बताइए आगे क्या करूँ।", n)
+                    continue
+                }
+
                 val node = st.target?.let { snap.nodes.getOrNull(it) }
                 val label = (node?.label ?: st.app).take(60)
                 if ((st.action == "tap" || st.action == "long_press" || st.action == "type") && node == null) {
@@ -168,8 +228,8 @@ class AgentRunner(
                 val snap2 = withContext(Dispatchers.Default) { svc.snapshot() }
                 var result = when {
                     !res.ok -> "विफल: ${res.note.ifBlank { "क़दम नहीं चला" }}"
-                    st.action == "wait" || st.action == "open_app" -> "ठीक"
-                    snap2.hash == snap.hash -> "कोई असर नहीं दिखा"
+                    st.action == "wait" || st.action == "open_app" || tree.empty -> "ठीक"
+                    snap2.hash == tree.hash -> "कोई असर नहीं दिखा"
                     else -> "ठीक"
                 }
                 if (result == "ठीक" && st.expect.isNotBlank() && !snap2.text.contains(st.expect, ignoreCase = true)) {

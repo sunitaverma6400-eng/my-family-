@@ -91,6 +91,23 @@ class RelayClient {
         )
     }
 
+    /** Reads one screenshot through the relay's vision tier. null = vision model busy/unavailable. */
+    suspend fun agentLook(
+        base: String, token: String, character: String, question: String, imageB64: String, w: Int, h: Int,
+    ): VisionResult? {
+        val body = JSONObject().put("character", character).put("question", question)
+            .put("image_b64", imageB64).put("width", w).put("height", h)
+        val j = request(base, "/agent/look", token, body.toString()) { }
+        if (j.optBoolean("degraded", false)) return null
+        val els = mutableListOf<VisionEl>()
+        val arr = j.optJSONArray("elements")
+        if (arr != null) for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            els.add(VisionEl(o.optString("label"), o.optInt("x"), o.optInt("y")))
+        }
+        return VisionResult(j.optString("summary"), els)
+    }
+
     /** Memory ladder helper. Returns null when the relay is busy (try again later). */
     suspend fun summarize(base: String, token: String, kind: String, items: JSONArray, profilePrev: String? = null): JSONObject? {
         val body = JSONObject().put("kind", kind).put("items", items)

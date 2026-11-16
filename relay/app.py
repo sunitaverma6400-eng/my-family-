@@ -117,7 +117,9 @@ def create_app(router=None, personas=None, token=None):
             return jsonify(error="not_allowed"), 403
         if not str(data.get("goal") or "").strip():
             return jsonify(error="bad_request"), 400
-        msgs = agentmod.build_messages(persona, data)
+        screen_text = (data.get("screen") or {}).get("text") if isinstance(data.get("screen"), dict) else ""
+        suspected = agentmod.detect_injection(screen_text)
+        msgs = agentmod.build_messages(persona, {**data, "injection_suspected": suspected})
         try:
             res = router.complete(router.tier_for(cid), msgs, temperature=0.2, max_tokens=900)
         except AllBusy as e:
@@ -126,7 +128,29 @@ def create_app(router=None, personas=None, token=None):
         if step is None:
             log.warning("agent bad step char=%s", cid)
             return jsonify(degraded=True, retry_after_s=5, errors=["bad_step"])
+        step["injection"] = bool(step["injection"] or suspected)
         return jsonify(degraded=False, step=step, provider=res.provider, model=res.model)
+
+    @app.post("/agent/look")
+    def agent_look():
+        """Read one screenshot (vision tier). The image is processed and dropped; nothing is stored on the relay."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        cid = data.get("character")
+        if personas.get(cid) is None or "screen_task" not in toolmod.allowed_for(cid, ["screen_task"]):
+            return jsonify(error="not_allowed"), 403
+        img = data.get("image_b64")
+        if not isinstance(img, str) or not (200 <= len(img) <= 900_000):
+            return jsonify(error="bad_image"), 400
+        try:
+            res = router.complete("vision", agentmod.build_look_messages(data), temperature=0.1, max_tokens=900)
+        except AllBusy as e:
+            return jsonify(degraded=True, retry_after_s=e.retry_after_s, errors=e.errors[-4:])
+        out = agentmod.parse_look(res.text)
+        if out is None:
+            return jsonify(degraded=True, retry_after_s=10, errors=["bad_look"])
+        return jsonify(degraded=False, provider=res.provider, model=res.model, **out)
 
     @app.get("/characters")
     def characters():

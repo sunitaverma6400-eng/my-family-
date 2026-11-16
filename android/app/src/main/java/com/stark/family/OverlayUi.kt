@@ -1,5 +1,8 @@
 package com.stark.family
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -34,6 +37,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +50,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
@@ -108,7 +115,7 @@ fun Avatar(c: Character, avatarSize: Dp, active: Boolean) {
 fun OverlayUi(
     mode: Mode, ch: Character, said: String, busy: Boolean, waking: Boolean, input: String,
     results: List<String>, pendingText: String?, onDecision: (Boolean) -> Unit,
-    hud: AgentHud, onResume: () -> Unit,
+    hud: AgentHud, onResume: () -> Unit, report: String?, onRerun: () -> Unit,
     onInput: (String) -> Unit, onSend: (String) -> Unit, onPick: (Character) -> Unit,
     onBubbleTap: () -> Unit, onDrag: (Float, Float) -> Unit, onCollapse: () -> Unit, onStop: () -> Unit,
 ) {
@@ -152,13 +159,14 @@ fun OverlayUi(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Avatar(ch, 40.dp, true)
                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text("${ch.name} · क़दम ${hud.step}/${hud.max}", color = ch.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("${ch.name} · क़दम ${hud.step}/${hud.max}${if (hud.sending) "  📤 स्क्रीन relay को" else ""}", color = ch.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Text(hud.line.ifBlank { "काम कर रहा हूँ…" }, color = FG, fontSize = 13.sp, maxLines = 2)
                     }
                     if (hud.paused) TextButton(onClick = onResume) { Text("▶", color = Color(0xFF5BE38A), fontSize = 20.sp) }
                     TextButton(onClick = onStop) { Text("⏹", color = Color(0xFFFF5D5D), fontSize = 20.sp) }
                 }
                 if (hud.paused) Text("आपने स्क्रीन छुई, इसलिए रुका हूँ। ▶ से जारी रखिए, ⏹ से रोकिए।", color = DIM, fontSize = 12.sp)
+                else Text("🔒 स्क्रीन की जानकारी सिर्फ़ आपके relay और LLM तक जाती है", color = DIM, fontSize = 10.sp)
                 if (pendingText != null) {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                         Text(pendingText, color = FG, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(bottom = 6.dp))
@@ -198,7 +206,11 @@ fun OverlayUi(
                     }
                     TextButton(onClick = onCollapse) { Text("✕", color = DIM, fontSize = 18.sp) }
                 }
-                if (said.isNotEmpty()) {
+                if (report != null) {
+                    Box(Modifier.padding(top = 8.dp).heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
+                        ReportCard(ch, report, onRerun)
+                    }
+                } else if (said.isNotEmpty()) {
                     Box(Modifier.padding(top = 8.dp).heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
                         Text(said, color = FG, fontSize = 15.sp, lineHeight = 22.sp)
                     }
@@ -252,5 +264,73 @@ fun OverlayUi(
                 }
             }
         }
+    }
+}
+
+
+/** The structured result of a screen task: स्थिति / सबूत / संभावित कारण / सुझाव, plus what to do next. */
+class ReportParts(val status: String, val level: Int, val evidence: String, val cause: String, val fix: String)
+
+fun parseReport(t: String): ReportParts {
+    val keys = listOf("स्थिति:", "सबूत:", "संभावित कारण:", "सुझाव:")
+    val map = mutableMapOf<String, StringBuilder>()
+    var cur: String? = null
+    for (raw in t.lines()) {
+        val line = raw.trim()
+        val k = keys.firstOrNull { line.startsWith(it) }
+        if (k != null) {
+            cur = k
+            map[k] = StringBuilder(line.removePrefix(k).trim())
+        } else if (cur != null && line.isNotEmpty()) {
+            map[cur]?.append("\n")?.append(line)
+        }
+    }
+    val st = map["स्थिति:"]?.toString().orEmpty()
+    val level = when {
+        st.contains("त्रुटि") -> 2
+        st.contains("चेतावनी") -> 1
+        st.contains("ठीक") -> 0
+        else -> 3
+    }
+    return ReportParts(st, level, map["सबूत:"]?.toString().orEmpty(), map["संभावित कारण:"]?.toString().orEmpty(), map["सुझाव:"]?.toString().orEmpty())
+}
+
+@Composable
+fun ReportCard(ch: Character, text: String, onRerun: () -> Unit) {
+    val ctx = LocalContext.current
+    val r = remember(text) { parseReport(text) }
+    var copied by remember { mutableStateOf("") }
+    fun copy(label: String, s: String) {
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText(label, s))
+        copied = "कॉपी हो गया ✓"
+    }
+    val chip = when (r.level) {
+        0 -> Color(0xFF5BE38A)
+        1 -> Color(0xFFFFC21A)
+        2 -> Color(0xFFFF5D5D)
+        else -> DIM
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.clip(RoundedCornerShape(10.dp)).border(1.dp, chip, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 4.dp)) {
+            Text("स्थिति: " + r.status.ifBlank { "—" }, color = chip, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        if (r.evidence.isNotBlank()) { Text("सबूत", color = ch.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold); Text(r.evidence, color = FG, fontSize = 14.sp, lineHeight = 20.sp) }
+        if (r.cause.isNotBlank()) { Text("संभावित कारण", color = ch.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold); Text(r.cause, color = FG, fontSize = 14.sp, lineHeight = 20.sp) }
+        if (r.fix.isNotBlank()) { Text("सुझाव (क़दम-दर-क़दम)", color = ch.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold); Text(r.fix, color = FG, fontSize = 14.sp, lineHeight = 20.sp) }
+        if (r.level == 3) Text(text, color = FG, fontSize = 14.sp)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                "📋 रिपोर्ट कॉपी" to { copy("रिपोर्ट", text) },
+                "🔧 सुझाव कॉपी" to { copy("सुझाव", r.fix.ifBlank { text }) },
+                "🔁 फिर जाँचो" to onRerun,
+            ).forEach { (name, act) ->
+                Box(
+                    Modifier.clip(RoundedCornerShape(16.dp)).border(1.dp, ch.accent.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                        .clickable { act() }.padding(horizontal = 12.dp, vertical = 6.dp),
+                ) { Text(name, color = ch.accent, fontSize = 12.sp) }
+            }
+        }
+        if (copied.isNotEmpty()) Text(copied, color = DIM, fontSize = 11.sp)
     }
 }
