@@ -73,12 +73,12 @@ class RelayClient {
     /** Agent Engine: ask the relay for ONE next screen action. Returns null when the relay is busy. */
     suspend fun agentStep(
         base: String, token: String, character: String, goal: String, steps: List<StepRec>,
-        pkg: String, screen: String, hint: String,
+        pkg: String, screen: String, hint: String, skillHint: String = "",
     ): AgentStep? {
         val arr = JSONArray()
         steps.forEach { arr.put(JSONObject().put("n", it.n).put("action", it.action).put("target", it.target).put("result", it.result)) }
         val body = JSONObject().put("character", character).put("goal", goal).put("steps", arr)
-            .put("screen", JSONObject().put("package", pkg).put("text", screen)).put("hint", hint)
+            .put("screen", JSONObject().put("package", pkg).put("text", screen)).put("hint", hint).put("skill_hint", skillHint.take(900))
         val j = request(base, "/agent/step", token, body.toString()) { }
         if (j.optBoolean("degraded", false)) return null
         val o = j.optJSONObject("step") ?: return null

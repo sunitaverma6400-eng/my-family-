@@ -458,6 +458,42 @@ class VisionAndCalcTests(unittest.TestCase):
         self.assertIn("dashboard.render.com", m[0]["content"])
 
 
+class DeepNavigationTests(unittest.TestCase):
+    H = {"X-App-Token": "tok"}
+
+    def client(self, replies):
+        fr = FakeRouter(replies)
+        return create_app(router=fr, personas=load_personas(), token="tok").test_client(), fr
+
+    def test_find_step(self):
+        from agent import parse_step
+        s = parse_step('{"action": "find", "text": "Rahul", "direction": "down", "say": "ढूँढ रही हूँ।"}')
+        self.assertEqual((s["action"], s["text"], s["direction"]), ("find", "Rahul", "down"))
+        self.assertIsNone(parse_step('{"action": "find"}'))
+
+    def test_skill_hint_reaches_the_prompt_and_is_clipped(self):
+        from agent import build_messages
+        data = {"goal": "WhatsApp में Rahul का आख़िरी PDF", "skill_hint": "1. open_app 'WhatsApp'\n2. tap 'Search'" + "x" * 2000,
+                "screen": {"package": "com.whatsapp", "text": "[0] Button (c) \"Search\""}}
+        m = build_messages(load_personas()["friday"], data)
+        self.assertIn("open_app 'WhatsApp'", m[1]["content"])
+        self.assertLess(len(m[1]["content"]), 5200)
+
+    def test_prompt_teaches_search_find_and_never_sharing(self):
+        from agent import build_messages
+        sysmsg = build_messages(load_personas()["jarvis"], {"goal": "x", "screen": {"package": "p", "text": "t"}})[0]["content"]
+        for needle in ("find", "Media, links, and docs", "फ़ॉरवर्ड", "History"):
+            self.assertIn(needle, sysmsg)
+
+    def test_endpoint_accepts_skill_hint_and_find(self):
+        c, _ = self.client(['{"action": "find", "text": "Rahul"}'])
+        body = {"character": "friday", "goal": "Rahul का PDF", "skill_hint": "1. tap 'Search'",
+                "screen": {"package": "com.whatsapp", "text": "[0] Text \"Chats\""}}
+        j = c.post("/agent/step", json=body, headers=self.H).get_json()
+        self.assertFalse(j["degraded"])
+        self.assertEqual(j["step"]["action"], "find")
+
+
 class PersonaTests(unittest.TestCase):
     def test_personas_complete_and_hindi(self):
         ps = load_personas()

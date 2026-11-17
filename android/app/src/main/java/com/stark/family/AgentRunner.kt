@@ -57,6 +57,7 @@ class AgentRunner(
             "confirm", "सबमिट", "reset", "रीसेट", "clear", "साफ़", "साफ", "format", "factory", "logout", "log out",
             "sign out", "लॉग आउट", "turn on", "turn off", "enable", "disable", "चालू", "बंद", "allow", "अनुमति",
             "grant", "accept", "स्वीकार", "forget", "भूल", "unpair", "disconnect", "cancel subscription",
+            "share", "शेयर", "forward", "फॉरवर्ड", "फ़ॉरवर्ड", "upload", "अपलोड",
         )
 
         fun isSensitivePkg(pkg: String): Boolean {
@@ -75,6 +76,53 @@ class AgentRunner(
     private val dao = ActivityDb.get(ctx).dao()
 
     private var visionCalls = 0
+
+    // ---- app-skill memory (a route that worked before) ----
+    private val skills = SkillRepo.get(ctx)
+    private var matched: LoadedSkill? = null
+    private var activeSkill: LoadedSkill? = null
+    private var sPtr = 0
+    private var skillMiss = 0
+    private var skillUsed = false
+    private var learnable = true
+    private var goalText = ""
+    private val trail = mutableListOf<SkillStep>()
+
+    private fun fastStep(s: SkillStep, snap: Snapshot): AgentStep? {
+        fun mk(action: String, target: Int? = null, app: String = "", text: String = "", dir: String = "down") = AgentStep(
+            action = action, target = target, app = app, text = text, direction = dir, say = "", reason = "सीखा हुआ रास्ता",
+            expect = "", changesState = false, injection = false, report = "",
+        )
+        return when (s.action) {
+            "tap", "long_press" -> {
+                val l = s.label.trim()
+                if (l.isEmpty()) null else snap.nodes.firstOrNull { !it.vision && it.label.equals(l, ignoreCase = true) }?.let { mk(s.action, it.idx) }
+            }
+            "open_app" -> if (s.app.isBlank()) null else mk("open_app", app = s.app)
+            "scroll" -> mk("scroll", dir = s.direction.ifBlank { "down" })
+            "find" -> if (s.text.isBlank()) null else mk("find", text = s.text, dir = s.direction.ifBlank { "down" })
+            "back", "home", "recents", "enter" -> mk(s.action)
+            else -> null  // type: the words usually change, so the model decides
+        }
+    }
+
+    private fun advanceSkill(action: String, label: String, app: String, fromSkill: Boolean) {
+        val sk = activeSkill ?: return
+        val exp = sk.steps.getOrNull(sPtr)
+        val same = exp != null && exp.action == action && when (action) {
+            "tap", "long_press" -> exp.label.startsWith("{") || exp.label.equals(label, ignoreCase = true)
+            "open_app" -> exp.app.equals(app, ignoreCase = true)
+            else -> true
+        }
+        if (same) {
+            sPtr++
+            skillUsed = true
+            skillMiss = 0
+        } else if (!fromSkill && ++skillMiss >= 2) {
+            activeSkill = null
+        }
+        if (sPtr >= sk.steps.size) activeSkill = null
+    }
 
     /** Screenshot -> relay vision tier. Overlay is hidden while capturing; the picture lives only in memory. */
     private suspend fun look(svc: AgentAccessibilityService, character: String, question: String, base: String, token: String): Pair<VisionResult?, String> {
@@ -98,7 +146,10 @@ class AgentRunner(
     }
 
     private suspend fun finishRun(run: AgentRun, status: String, report: String, steps: Int): AgentOutcome {
-        withContext(NonCancellable) { dao.updateRun(run.copy(status = status, report = report.take(1500), steps = steps)) }
+        withContext(NonCancellable) {
+            try { skills.finish(goalText, matched?.skill, skillUsed, status, trail, learnable) } catch (_: Exception) { }
+            dao.updateRun(run.copy(status = status, report = report.take(1500), steps = steps))
+        }
         return AgentOutcome(status, report, steps)
     }
 
@@ -108,6 +159,13 @@ class AgentRunner(
         }
         val run0 = AgentRun(ts = System.currentTimeMillis(), character = character, goal = goal.take(300), status = "running")
         val run = run0.copy(id = dao.insertRun(run0))
+        goalText = goal
+        try {
+            skills.seedIfEmpty()
+            matched = skills.match(goal)
+        } catch (_: Exception) { }
+        activeSkill = matched
+        if (matched != null) ui.narrate("पुराना रास्ता मिला: ${matched?.skill?.title?.take(40)}")
         val started = System.currentTimeMillis()
         val history = mutableListOf<StepRec>()
         val unlocked = mutableSetOf<String>()
@@ -135,6 +193,7 @@ class AgentRunner(
                     if (!ok) return finishRun(run, "stopped", "संवेदनशील ऐप में काम नहीं किया।", n)
                     unlocked.add(tree.pkg)
                 }
+                if (tree.empty || unlocked.isNotEmpty()) learnable = false
                 var snap = tree
                 val m = ctx.resources.displayMetrics
                 if (tree.empty) {
@@ -147,14 +206,30 @@ class AgentRunner(
                     visionCache?.takeIf { it.first == tree.hash }?.let { snap = tree.withVision(it.second, m.widthPixels, m.heightPixels) }
                 }
 
-                ui.sending(true)
-                val st = try {
-                    client.agentStep(base, token, character, goal, history.takeLast(8), snap.pkg, snap.text, hint)
-                } catch (e: RelayClient.RelayException) {
-                    return finishRun(run, "failed", e.message ?: "relay से जवाब नहीं मिला।", n)
-                } finally {
-                    ui.sending(false)
+                var fromSkill = false
+                var got: AgentStep? = null
+                val sk = activeSkill
+                if (sk != null && sk.skill.successes >= 1 && sPtr < sk.steps.size) {
+                    got = fastStep(sk.steps[sPtr], snap)
+                    if (got != null) {
+                        fromSkill = true
+                        ui.narrate("पहले का रास्ता दोहरा रहा हूँ (${sPtr + 1}/${sk.steps.size})")
+                    }
                 }
+                if (got == null) {
+                    ui.sending(true)
+                    got = try {
+                        client.agentStep(
+                            base, token, character, goal, history.takeLast(8), snap.pkg, snap.text, hint,
+                            skillHint = activeSkill?.let { SkillRepo.hintText(it.steps, sPtr) }.orEmpty(),
+                        )
+                    } catch (e: RelayClient.RelayException) {
+                        return finishRun(run, "failed", e.message ?: "relay से जवाब नहीं मिला।", n)
+                    } finally {
+                        ui.sending(false)
+                    }
+                }
+                val st = got
                 if (st == null) {
                     if (++relayFails >= 3) return finishRun(run, "failed", "अभी दिमाग़ (relay) व्यस्त है, थोड़ी देर बाद फिर कहिए।", n)
                     delay(4000)
@@ -192,8 +267,45 @@ class AgentRunner(
                     continue
                 }
 
+                if (st.action == "find") {
+                    val want = st.text.trim()
+                    var found: UiNode? = null
+                    var scrolls = 0
+                    var cur = tree
+                    var same = 0
+                    var lastHash = tree.hash
+                    while (want.isNotEmpty()) {
+                        coroutineContext.ensureActive()
+                        found = cur.nodes.firstOrNull { !it.vision && (it.text.contains(want, ignoreCase = true) || it.desc.contains(want, ignoreCase = true)) }
+                        if (found != null || scrolls >= 12 || same >= 2) break
+                        ui.markGesture()
+                        svc.scroll(null, cur, st.direction != "up")
+                        delay(800)
+                        scrolls++
+                        cur = withContext(Dispatchers.Default) { svc.snapshot() }
+                        if (cur.hash == lastHash) same++ else { same = 0; lastHash = cur.hash }
+                    }
+                    val ok = found != null
+                    val res = if (ok) "मिला: '${found?.label}' ($scrolls स्क्रॉल के बाद)" else "'$want' नहीं मिला ($scrolls स्क्रॉल; सूची का अंत या वह यहाँ नहीं है)"
+                    history.add(StepRec(n, "find", want.take(40), res))
+                    dao.insertStep(AgentStepLog(runId = run.id, n = n, ts = System.currentTimeMillis(), action = "find", target = want.take(60), reason = st.reason, result = res))
+                    if (ok) {
+                        failStreak = 0
+                        hint = ""
+                        trail.add(SkillStep("find", text = want, direction = st.direction))
+                        advanceSkill("find", "", "", fromSkill)
+                    } else {
+                        failStreak++
+                        hint = "'$want' नहीं मिला। दूसरा तरीक़ा आज़माओ: ऐप का खोज-बॉक्स, दूसरा टैब, या दूसरा नाम/शब्द।"
+                        if (fromSkill) activeSkill = null
+                        if (failStreak >= 3) return finishRun(run, "ask", "मैं '$want' ढूँढ नहीं पाया ($res)। आप बताइए आगे क्या करूँ?", n)
+                    }
+                    continue
+                }
+
                 val node = st.target?.let { snap.nodes.getOrNull(it) }
                 val label = (node?.label ?: st.app).take(60)
+                if (node?.vision == true) learnable = false
                 if ((st.action == "tap" || st.action == "long_press" || st.action == "type") && node == null) {
                     history.add(StepRec(n, st.action, "?", "विफल: स्क्रीन पर वह क्रमांक नहीं है"))
                     hint = "तुमने ऐसा क्रमांक चुना जो स्क्रीन पर नहीं है। सिर्फ़ दिखती सूची से चुनो।"
@@ -229,6 +341,7 @@ class AgentRunner(
                 var result = when {
                     !res.ok -> "विफल: ${res.note.ifBlank { "क़दम नहीं चला" }}"
                     st.action == "wait" || st.action == "open_app" || tree.empty -> "ठीक"
+                    snap2.hash == tree.hash && st.action == "scroll" -> "कोई असर नहीं दिखा (सूची का अंत हो सकता है)"
                     snap2.hash == tree.hash -> "कोई असर नहीं दिखा"
                     else -> "ठीक"
                 }
@@ -243,7 +356,17 @@ class AgentRunner(
                 if (result.startsWith("ठीक")) {
                     failStreak = 0
                     hint = ""
+                    if (st.action != "wait") {
+                        trail.add(
+                            SkillStep(
+                                st.action, if (st.action == "tap" || st.action == "long_press") label else "",
+                                if (st.action == "type") st.text else "", st.direction, st.app,
+                            ),
+                        )
+                    }
+                    advanceSkill(st.action, label, st.app, fromSkill)
                 } else {
+                    if (fromSkill) activeSkill = null  // a replayed step failed: the model takes over
                     failStreak++
                     hint = "पिछला क़दम ($result)। वही तरीक़ा मत दोहराओ; दूसरा रास्ता आज़माओ।"
                     if (failStreak >= 3) {

@@ -9,7 +9,7 @@ import re
 from memorykit import is_sensitive
 
 ACTIONS = {"tap", "long_press", "scroll", "swipe", "type", "enter", "back", "home", "recents",
-           "open_app", "wait", "look", "calc", "finish", "ask"}
+           "open_app", "wait", "look", "calc", "find", "finish", "ask"}
 DIRECTIONS = {"up", "down", "left", "right"}
 
 
@@ -60,9 +60,15 @@ def build_messages(persona, data):
         "पट्टी पर tap करने के बाद अगली स्क्रीन में जो टेक्स्ट-फ़ील्ड सक्रिय दिखे उसका क्रमांक चुनकर उसी में type करो (कीबोर्ड दिखने की जाँच मत करो)। "
         "लॉगिन पन्ना आए तो 'ask' करो; उपयोगकर्ता पहले से लॉगिन हो तो सीधे आगे बढ़ो।\n"
         "- हर सेवा/पन्ने को सच में खोलकर देखो: स्थिति, ताज़ा deploys, error लॉग, CPU/memory/response के आँकड़े; ज़रूरत पर स्क्रॉल करो। अंदाज़ा मत लगाओ।\n"
+        "- कुछ ढूँढना हो (चैट, फ़ाइल, ऐप, सेटिंग): पहले उस ऐप का खोज-बॉक्स (magnifier/Search) आज़माओ। खोज-बॉक्स न हो या काम न करे तो action 'find' चुनो "
+        "(text में नाम का टुकड़ा, direction down/up): वह ख़ुद स्क्रॉल करके 12 बार तक ढूँढता है, हर स्क्रॉल पर तुम्हें बुलाए बिना। मिल जाए तब उस पर tap करो।\n"
+        "- टैब/उप-मेनू/ऊपर के नाम (हेडर) पर tap करके और गहरे जाओ; भटक जाओ तो back से लौटो। जो चीज़ ढूँढ रहे हो वह मिल जाए तो 'finish' दो और स्क्रीन उसी पर छोड़ दो।\n"
+        "- जो मिला उसे दिखाओ और report में बताओ (नाम, तारीख़, आकार, कहाँ), पर उसे भेजना, शेयर करना, फ़ॉरवर्ड करना या मिटाना ख़ुद कभी मत करो: पहले उपयोगकर्ता से पूछो।\n"
+        "- WhatsApp में किसी का आख़िरी PDF: Search → नाम type → चैट खोलो → ऊपर नाम पर tap → 'Media, links, and docs' → 'Docs' टैब; सबसे ऊपर वाला सबसे नया होता है।\n"
+        "- Chrome के इतिहास में पुराना लिंक: ⋮ मेनू → History → खोज में शब्द (जैसे 'render') type करो → सही लिंक पर tap।\n"
         "- चार्ट या ऐसी चीज़ जो सूची में पढ़ने लायक न दिखे, उसके लिए action 'look' (text में सवाल) से स्क्रीनशॉट पढ़वाओ।\n"
         "- संख्याओं का जोड़/औसत/प्रतिशत ख़ुद मत निकालो: action 'calc' (text में सिर्फ़ अंक और + - * / ( ) % .) से निकलवाओ, और रिपोर्ट में हिसाब दिखाओ। कुछ असामान्य दिखे तो चेतावनी में लिखो।\n"
-        "- action इनमें से: tap, long_press, scroll, swipe, type, enter, back, home, recents, open_app, wait, look, calc, finish, ask।\n\n"
+        "- action इनमें से: tap, long_press, scroll, swipe, type, enter, back, home, recents, open_app, wait, look, calc, find, finish, ask।\n\n"
         'सिर्फ़ एक JSON ऑब्जेक्ट लिखो, उसके बाहर कुछ नहीं: {"action": "...", "target": <स्क्रीन का क्रमांक या null>, '
         '"app": "<open_app के लिए ऐप का नाम>", "text": "<type के लिए>", "direction": "up|down|left|right", '
         '"say": "<तुम्हारे लहजे में 12 शब्द तक, देवनागरी हिंदी में: अभी क्या कर रहे हो>", "reason": "<छोटा कारण>", '
@@ -71,6 +77,9 @@ def build_messages(persona, data):
     user = ""
     if hist:
         user += "अब तक के क़दम:\n" + "\n".join(hist) + "\n\n"
+    if data.get("skill_hint"):
+        user += ("पहले सफल रहा रास्ता (सिर्फ़ सुझाव; आज की स्क्रीन देखकर चलो, आँख मूँदकर दोहराओ मत; {…} वाली जगह असली नाम डालो):\n"
+                 + str(data.get("skill_hint"))[:900] + "\n\n")
     if data.get("hint"):
         user += "ध्यान: " + _clip(data.get("hint"), 200) + "\n\n"
     if data.get("injection_suspected"):
@@ -119,6 +128,8 @@ def parse_step(text):
             return {**step, "action": "ask", "text": "", "target": None,
                     "say": "मैं पासवर्ड, OTP या कार्ड नंबर नहीं लिख सकता। कृपया इसे आप ख़ुद दर्ज कीजिए।"}
     if act == "calc" and not CALC_OK.match(step["text"]):
+        return None
+    if act == "find" and not step["text"]:
         return None
     if act == "look":
         step["text"] = step["text"] or "इस स्क्रीन पर क्या-क्या दिख रहा है?"

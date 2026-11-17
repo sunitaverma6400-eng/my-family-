@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
             StarkTheme(vm.character) {
                 if (vm.showMemory) MemoryScreen(vm.character) { vm.showMemory = false }
                 else if (vm.showActivity) ActivityScreen(vm.character) { vm.showActivity = false }
+                else if (vm.showSkills) SkillsScreen(vm.character) { vm.showSkills = false }
                 else ChatScreen(vm, onBubble = { toggleBubble() })
             }
         }
@@ -145,6 +146,7 @@ fun ChatScreen(vm: ChatViewModel, onBubble: () -> Unit) {
             TextButton(onClick = onBubble) { Text(if (OverlayService.running) "🫧 बंद" else "🫧 बबल", color = ch.accent2) }
             TextButton(onClick = { vm.showMemory = true }) { Text("📚", color = ch.accent2) }
             TextButton(onClick = { vm.showActivity = true }) { Text("📋", color = ch.accent2) }
+            TextButton(onClick = { vm.showSkills = true }) { Text("🧩", color = ch.accent2) }
             TextButton(onClick = { vm.openBrain() }) { Text("🧠", color = ch.accent2) }
             TextButton(onClick = { vm.showSettings = true }) { Text("⚙", color = ch.accent2, fontSize = 20.sp) }
         }
