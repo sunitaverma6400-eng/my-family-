@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -60,6 +61,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 
 class MainActivity : ComponentActivity() {
@@ -124,6 +126,14 @@ fun StarkTheme(ch: Character, content: @Composable () -> Unit) {
 }
 
 @Composable
+private fun RowScope.HeaderBtn(label: String, color: Color, fontSize: TextUnit = 20.sp, onClick: () -> Unit) {
+    Box(
+        Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = color, fontSize = fontSize, maxLines = 1, softWrap = false) }
+}
+
+@Composable
 fun ChatScreen(vm: ChatViewModel, onBubble: () -> Unit) {
     val ch = vm.character
     val msgs = vm.messages()
@@ -135,21 +145,20 @@ fun ChatScreen(vm: ChatViewModel, onBubble: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "स्टार्क परिवार", color = ch.accent, fontSize = 20.sp,
-                fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onBubble) { Text(if (OverlayService.running) "🫧 बंद" else "🫧 बबल", color = ch.accent2) }
-            TextButton(onClick = { vm.showMemory = true }) { Text("📚", color = ch.accent2) }
-            TextButton(onClick = { vm.showActivity = true }) { Text("📋", color = ch.accent2) }
-            TextButton(onClick = { vm.showSkills = true }) { Text("🧩", color = ch.accent2) }
-            TextButton(onClick = { vm.openBrain() }) { Text("🧠", color = ch.accent2) }
-            TextButton(onClick = { vm.showSettings = true }) { Text("⚙", color = ch.accent2, fontSize = 20.sp) }
+        Text(
+            "स्टार्क परिवार", color = ch.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 2.dp),
+        )
+        // Six equal-width buttons on their own row: they can never squeeze the title into a tall column again.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            HeaderBtn(if (OverlayService.running) "🫧 बंद" else "🫧 बबल", ch.accent2, 13.sp, onBubble)
+            HeaderBtn("📚", ch.accent2) { vm.showMemory = true }
+            HeaderBtn("📋", ch.accent2) { vm.showActivity = true }
+            HeaderBtn("🧩", ch.accent2) { vm.showSkills = true }
+            HeaderBtn("🧠", ch.accent2) { vm.openBrain() }
+            HeaderBtn("⚙", ch.accent2) { vm.showSettings = true }
         }
+        Spacer(Modifier.height(4.dp))
 
         Row(
             Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
