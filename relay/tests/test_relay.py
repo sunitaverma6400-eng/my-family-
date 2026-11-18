@@ -494,6 +494,83 @@ class DeepNavigationTests(unittest.TestCase):
         self.assertEqual(j["step"]["action"], "find")
 
 
+class RuleTests(unittest.TestCase):
+    H = {"X-App-Token": "tok"}
+    GOOD = ('{"name": "घर आने पर Wi-Fi", "trigger": {"type": "enter_home"}, "conditions": {"after": "18:00"}, "actions": ['
+            '{"tool": "wifi_panel", "args": {}}, {"tool": "say", "args": {"character": "friday", "text": "शुभ संध्या सर।"}}], '
+            '"summary": "जब आप घर पहुँचेंगे: Wi-Fi का पैनल खुलेगा और Friday बोलेगी।"}')
+
+    def client(self, replies):
+        fr = FakeRouter(replies)
+        return create_app(router=fr, personas=load_personas(), token="tok").test_client(), fr
+
+    def post(self, c, text="jab main ghar aau toh wifi on kar do aur friday good evening bole", **kw):
+        return c.post("/rule_from_text", json={"text": text, **kw}, headers=self.H).get_json()
+
+    def test_teaching_becomes_a_validated_rule(self):
+        c, fr = self.client([self.GOOD])
+        j = self.post(c)
+        self.assertTrue(j["understood"])
+        r = j["rule"]
+        self.assertEqual(r["trigger"], {"type": "enter_home"})
+        self.assertEqual(r["conditions"], {"after": "18:00"})
+        self.assertEqual([a["tool"] for a in r["actions"]], ["wifi_panel", "say"])
+        self.assertEqual((r["speaker"], r["max_level"]), ("friday", 2))
+        self.assertEqual(fr.calls, ["smart"])
+
+    def test_time_rule_and_high_risk_needs_level_3(self):
+        reply = ('{"name": "रात की कॉल", "trigger": {"type": "time", "at": "7:05", "days": [5, 1, 1]}, '
+                 '"actions": [{"tool": "call_contact", "args": {"contact": "माँ"}}], "summary": "x"}')
+        c, _ = self.client([reply])
+        r = self.post(c, "roz subah 7:05 maa ko call")["rule"]
+        self.assertEqual(r["trigger"], {"type": "time", "at": "07:05", "days": [1, 5]})
+        self.assertEqual(r["max_level"], 3)
+
+    def test_bad_rules_are_refused(self):
+        bads = [
+            '{"trigger": {"type": "time", "at": "25:99"}, "actions": [{"tool": "torch", "args": {"on": true}}]}',
+            '{"trigger": {"type": "enter_home"}, "actions": [{"tool": "format_phone", "args": {}}]}',
+            '{"trigger": {"type": "enter_home"}, "actions": [{"tool": "say", "args": {"character": "friday", "text": "मेरा OTP 482913 है"}}]}',
+            '{"trigger": {"type": "enter_home"}, "actions": [{"tool": "say", "args": {"character": "ghost", "text": "hi"}}]}',
+            '{"trigger": {"type": "enter_home"}, "conditions": {"mood": "sad"}, "actions": [{"tool": "torch", "args": {"on": true}}]}',
+            '{"trigger": {"type": "enter_home"}, "actions": []}',
+        ]
+        for bad in bads:
+            c, _ = self.client([bad])
+            j = self.post(c)
+            self.assertFalse(j["understood"], bad)
+            self.assertIn("question", j)
+
+    def test_unclear_asks_a_question_and_garbage_is_degraded(self):
+        c, _ = self.client(['{"error": "unclear", "question": "किस समय?"}'])
+        j = self.post(c, "kuch karo raat ko")
+        self.assertEqual((j["understood"], j["question"]), (False, "किस समय?"))
+        c, _ = self.client(["कोई JSON नहीं"])
+        self.assertTrue(self.post(c)["degraded"])
+
+    def test_guard_and_examples_in_prompt(self):
+        c, _ = self.client([])
+        self.assertEqual(c.post("/rule_from_text", json={"text": "x"}).status_code, 401)
+        self.assertEqual(c.post("/rule_from_text", json={"text": " "}, headers=self.H).status_code, 400)
+        import rules
+        m = rules.build_messages({"text": "x", "examples": [{"text": "रात 11 बजे DND", "rule": {"trigger": {"type": "time"}}}]}, {"jarvis", "friday"})
+        self.assertIn("रात 11 बजे DND", m[0]["content"])
+        self.assertIn("friday|jarvis", m[0]["content"])
+
+    def test_new_device_tools_validate_and_propose_rule_is_everywhere(self):
+        from tools import validate_calls, allowed_for
+        ok, notes = validate_calls([{"name": "set_volume", "args": {"stream": "media", "percent": 30}},
+                                    {"name": "set_volume", "args": {"stream": "bass", "percent": 30}},
+                                    {"name": "set_dnd", "args": {"on": True}}],
+                                   ["set_volume", "set_dnd", "wifi_panel"])
+        self.assertEqual([c["name"] for c in ok], ["set_volume", "set_dnd"])
+        self.assertEqual(len(notes), 1)
+        ok2, _ = validate_calls([{"name": "wifi_panel", "args": {}}], ["wifi_panel"])
+        self.assertEqual(ok2[0]["name"], "wifi_panel")
+        for who in ("jarvis", "vision", "ultron", "karen", "friday", "edith", "dume", "u"):
+            self.assertIn("propose_rule", allowed_for(who, ["propose_rule"]), who)
+
+
 class PersonaTests(unittest.TestCase):
     def test_personas_complete_and_hindi(self):
         ps = load_personas()

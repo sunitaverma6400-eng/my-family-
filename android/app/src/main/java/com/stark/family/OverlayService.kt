@@ -167,6 +167,7 @@ class OverlayService : Service() {
         if (view == null) showOverlay()
         running = true
         scope.launch { repo.maintain(prefs.relayUrl, prefs.token) }
+        Background.start(applicationContext)
         return START_NOT_STICKY
     }
 
@@ -283,10 +284,33 @@ class OverlayService : Service() {
     }
 
     /** Low-risk tools run at once; anything risky waits for an explicit "हाँ" on screen. Results are honest. */
+    /** Teach by talking: the relay drafts the rule, the user approves it right here. Nothing is saved before "हाँ". */
+    private suspend fun proposeRule(teaching: String, who: String) {
+        val (draft, msg) = RuleTeacher.propose(applicationContext, teaching, who)
+        if (draft == null) {
+            results.add("✗ $msg")
+            return
+        }
+        val ask = CompletableDeferred<Boolean>()
+        pending = Pending("नियम सेव करूँ?\n${draft.describe}", ask)
+        collapseJob?.cancel()
+        val yes = try { ask.await() } finally { pending = null }
+        if (yes) {
+            RuleRepo.get(applicationContext).save(draft)
+            results.add("✓ नियम सेव हुआ (शुरुआत सिर्फ़ सुझाव-मोड में; 🧭 में बदल सकते हैं)")
+        } else {
+            results.add("✗ नियम रद्द किया")
+        }
+    }
+
     private suspend fun runTools(calls: List<ToolCall>, who: String) {
         for (c in calls.take(3)) {
             if (c.name == "screen_task") {
                 runAgent(c.args.optString("goal"), who)
+                continue
+            }
+            if (c.name == "propose_rule") {
+                proposeRule(c.args.optString("teaching"), who)
                 continue
             }
             val plan = withContext(Dispatchers.IO) { Tools.plan(applicationContext, c, who) }
@@ -446,7 +470,7 @@ class OverlayService : Service() {
                 val mem = repo.relevant(t, cid)
                 val r = client.chat(
                     prefs.relayUrl, prefs.token, cid, t, h.takeLast(8),
-                    tools = Tools.NAMES, context = Tools.context(), memory = mem,
+                    tools = Tools.NAMES, context = Tools.context(applicationContext), memory = mem,
                 ) { waking = it }
                 said = r.speech.ifBlank { if (r.toolCalls.isEmpty()) "..." else "ठीक है।" }
                 h.add("user" to t)

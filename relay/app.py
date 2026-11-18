@@ -15,6 +15,7 @@ from prompting import (build_messages, clean_history, language_ok, load_personas
 import requests
 
 import agent as agentmod
+import rules as rulesmod
 import memorykit
 import tools as toolmod
 from router import PROVIDERS, AllBusy, Router, load_config
@@ -151,6 +152,26 @@ def create_app(router=None, personas=None, token=None):
         if out is None:
             return jsonify(degraded=True, retry_after_s=10, errors=["bad_look"])
         return jsonify(degraded=False, provider=res.provider, model=res.model, **out)
+
+    @app.post("/rule_from_text")
+    def rule_from_text():
+        """Teach by talking: Hinglish -> one validated rule JSON. The phone shows it for approval before saving."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        if not str(data.get("text") or "").strip():
+            return jsonify(error="bad_request"), 400
+        ids = set(personas)
+        try:
+            res = router.complete("smart", rulesmod.build_messages(data, ids), temperature=0.1, max_tokens=900)
+        except AllBusy as e:
+            return jsonify(degraded=True, retry_after_s=e.retry_after_s, errors=e.errors[-4:])
+        out = rulesmod.parse(res.text, ids)
+        if out is None:
+            return jsonify(degraded=True, retry_after_s=10, errors=["bad_json"])
+        if "rule" in out:
+            return jsonify(degraded=False, understood=True, rule=out["rule"], provider=res.provider, model=res.model)
+        return jsonify(degraded=False, understood=False, question=out["question"])
 
     @app.get("/characters")
     def characters():

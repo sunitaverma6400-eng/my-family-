@@ -57,6 +57,12 @@ def _bool(v):
     raise ValueError("not a bool")
 
 
+def _choice(v, options):
+    if not isinstance(v, str) or v.strip().lower() not in options:
+        raise ValueError("bad choice")
+    return v.strip().lower()
+
+
 def _fact(v):
     s = _str(v, 200)
     if is_sensitive(s):
@@ -65,6 +71,11 @@ def _fact(v):
 
 
 VALIDATORS = {
+    "set_dnd": lambda a: {"on": _bool(a.get("on"))},
+    "set_volume": lambda a: {"stream": _choice(a.get("stream", "media"), ("media", "ring", "alarm", "notification")),
+                             "percent": _int(a.get("percent"), 0, 100)},
+    "wifi_panel": lambda a: {},
+    "propose_rule": lambda a: {"teaching": _str(a.get("teaching"), 300)},
     "screen_task": lambda a: {"goal": _str(a.get("goal"), 300)},
     "remember_fact": lambda a: {"fact": _fact(a.get("fact")), "importance": _int(a.get("importance", 3), 1, 5)},
     "set_alarm": lambda a: {"hour": _int(a.get("hour"), 0, 23), "minute": _int(a.get("minute", 0), 0, 59),

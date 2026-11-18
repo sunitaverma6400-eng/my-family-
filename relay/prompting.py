@@ -87,6 +87,8 @@ def build_system_prompt(p, memory=None, context=None, tools=None):
             L.append(f"- {t['name']}: {t['desc']}। args: {t['args']}" + ("  [हर बार उपयोगकर्ता की हाँ ज़रूरी]" if t["risk"] != "low" else ""))
         if any(t["name"] == "remember_fact" for t in tools):
             L.append("- remember_fact तब दो जब उपयोगकर्ता 'याद रखो' कहे, या अपने बारे में कोई स्थायी बात बताए (नाम, घर-परिवार, पसंद, परीक्षा या योजना की तारीख़)। मामूली बात पर नहीं; पासवर्ड, OTP, कार्ड नंबर कभी नहीं।")
+        if any(t["name"] == "propose_rule" for t in tools):
+            L.append("- propose_rule तब दो जब उपयोगकर्ता कोई नियम सिखाए ('जब मैं घर आऊँ तो…', 'हर रात 11 बजे…', 'YouTube खोलूँ तो…', 'बैटरी 15% से कम हो तो…'); teaching में उसके शब्द ज्यों के त्यों रखो। ख़ुद कुछ मत करो और speech में कहो कि नियम उसकी मंज़ूरी के बाद ही बनेगा।")
         if any(t["name"] == "screen_task" for t in tools):
             L.append("- screen_task तब दो जब उपयोगकर्ता कहे कि तुम फ़ोन में कोई ऐप खोलकर कुछ देखो, खोजो या जाँचो (जैसे 'Settings में बैटरी usage दिखाओ')। goal में पूरा लक्ष्य लिखो। इसमें तुम ख़ुद स्क्रीन पर चलोगे; कुछ बदलने से पहले ऐप हर बार उपयोगकर्ता से पूछेगा।")
         L.append("# जवाब का रूप (ज़रूरी)")

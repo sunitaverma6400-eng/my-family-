@@ -72,7 +72,16 @@ class AgentAccessibilityService : AccessibilityService() {
         instance = this
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    /** Remembers which app is in front (a package name only, never screen content) and wakes "app opened" rules. */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = event.packageName?.toString() ?: return
+        val low = pkg.lowercase()
+        if (pkg == packageName || low.contains("systemui") || low.contains("inputmethod") || low.endsWith(".ime")) return
+        if (pkg == ContextEngine.foregroundPkg) return
+        ContextEngine.foregroundPkg = pkg
+        RuleEngine.onAppOpened(applicationContext, pkg)
+    }
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {

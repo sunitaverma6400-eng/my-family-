@@ -108,6 +108,14 @@ class RelayClient {
         return VisionResult(j.optString("summary"), els)
     }
 
+    /** Teach by talking: Hinglish sentence -> one validated rule (or a question back). null = relay busy. */
+    suspend fun ruleFromText(base: String, token: String, text: String, now: String, examples: JSONArray): RuleResp? {
+        val body = JSONObject().put("text", text).put("now", now).put("examples", examples)
+        val j = request(base, "/rule_from_text", token, body.toString()) { }
+        if (j.optBoolean("degraded", false)) return null
+        return RuleResp(j.optBoolean("understood", false), j.optJSONObject("rule"), j.optString("question"))
+    }
+
     /** Memory ladder helper. Returns null when the relay is busy (try again later). */
     suspend fun summarize(base: String, token: String, kind: String, items: JSONArray, profilePrev: String? = null): JSONObject? {
         val body = JSONObject().put("kind", kind).put("items", items)
@@ -191,3 +199,5 @@ data class AgentStep(
     val say: String, val reason: String, val expect: String, val changesState: Boolean, val injection: Boolean,
     val report: String,
 )
+
+class RuleResp(val understood: Boolean, val rule: JSONObject?, val question: String)

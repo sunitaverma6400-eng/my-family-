@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Background.start(this)
         val need = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -85,7 +86,17 @@ class MainActivity : ComponentActivity() {
                 if (vm.showMemory) MemoryScreen(vm.character) { vm.showMemory = false }
                 else if (vm.showActivity) ActivityScreen(vm.character) { vm.showActivity = false }
                 else if (vm.showSkills) SkillsScreen(vm.character) { vm.showSkills = false }
+                else if (vm.showRules) RulesScreen(vm.character) { vm.showRules = false }
                 else ChatScreen(vm, onBubble = { toggleBubble() })
+                vm.ruleDraft?.let { d ->
+                    AlertDialog(
+                        onDismissRequest = { vm.dropRuleDraft() },
+                        title = { Text("नियम सेव करूँ?", color = Color(0xFFEDEDED)) },
+                        text = { Text(d.describe, color = Color(0xFFEDEDED)) },
+                        confirmButton = { TextButton(onClick = { vm.saveRuleDraft() }) { Text("सेव करो", color = vm.character.accent) } },
+                        dismissButton = { TextButton(onClick = { vm.dropRuleDraft() }) { Text("रद्द", color = Color(0xFF8A8A8A)) } },
+                    )
+                }
             }
         }
     }
@@ -155,6 +166,7 @@ fun ChatScreen(vm: ChatViewModel, onBubble: () -> Unit) {
             HeaderBtn("📚", ch.accent2) { vm.showMemory = true }
             HeaderBtn("📋", ch.accent2) { vm.showActivity = true }
             HeaderBtn("🧩", ch.accent2) { vm.showSkills = true }
+            HeaderBtn("🧭", ch.accent2) { vm.showRules = true }
             HeaderBtn("🧠", ch.accent2) { vm.openBrain() }
             HeaderBtn("⚙", ch.accent2) { vm.showSettings = true }
         }

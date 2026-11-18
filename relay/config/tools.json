@@ -40,6 +40,26 @@
       "risk": "low",
       "desc": "फ़ोन की स्क्रीन पर ख़ुद ऐप खोलकर, स्क्रॉल/टैप करके कुछ देखना, खोजना या जाँचना और रिपोर्ट देना (कुछ बदलने से पहले उपयोगकर्ता से हमेशा पूछा जाता है)",
       "args": "{\"goal\": \"पूरा काम एक-दो वाक्य में\"}"
+    },
+    "set_dnd": {
+      "risk": "low",
+      "desc": "Do Not Disturb (ख़लल मत डालो) चालू या बंद करना",
+      "args": "{\"on\": true या false}"
+    },
+    "set_volume": {
+      "risk": "low",
+      "desc": "आवाज़ का स्तर तय करना",
+      "args": "{\"stream\": \"media|ring|alarm|notification\", \"percent\": 0-100}"
+    },
+    "wifi_panel": {
+      "risk": "low",
+      "desc": "Wi-Fi/इंटरनेट का पैनल खोलना (Android अपने-आप Wi-Fi चालू नहीं करने देता; स्विच उपयोगकर्ता दबाता है)",
+      "args": "{}"
+    },
+    "propose_rule": {
+      "risk": "low",
+      "desc": "उपयोगकर्ता ने कोई नियम सिखाया ('जब X हो तब Y करो') तो उसे नियम-प्रस्ताव में बदलवाना; नियम तभी बनता है जब उपयोगकर्ता मंज़ूर करे",
+      "args": "{\"teaching\": \"उपयोगकर्ता के अपने शब्द, ज्यों के त्यों\"}"
     }
   },
   "permissions": {
@@ -51,7 +71,11 @@
       "torch",
       "call_contact",
       "remember_fact",
-      "screen_task"
+      "screen_task",
+      "set_dnd",
+      "set_volume",
+      "wifi_panel",
+      "propose_rule"
     ],
     "friday": [
       "set_alarm",
@@ -59,35 +83,45 @@
       "set_reminder",
       "open_app",
       "remember_fact",
-      "screen_task"
+      "screen_task",
+      "set_dnd",
+      "set_volume",
+      "wifi_panel",
+      "propose_rule"
     ],
     "edith": [
       "torch",
       "open_app",
       "remember_fact",
-      "screen_task"
+      "screen_task",
+      "propose_rule"
     ],
     "dume": [
       "torch",
       "open_app",
       "remember_fact",
-      "screen_task"
+      "screen_task",
+      "propose_rule"
     ],
     "u": [
       "torch",
       "open_app",
       "remember_fact",
-      "screen_task"
+      "screen_task",
+      "propose_rule"
     ],
     "vision": [
-      "remember_fact"
+      "remember_fact",
+      "propose_rule"
     ],
     "ultron": [
       "remember_fact",
-      "screen_task"
+      "screen_task",
+      "propose_rule"
     ],
     "karen": [
-      "remember_fact"
+      "remember_fact",
+      "propose_rule"
     ]
   }
 }

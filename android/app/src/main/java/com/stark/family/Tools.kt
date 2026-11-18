@@ -1,16 +1,20 @@
 package com.stark.family
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.provider.AlarmClock
 import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -32,12 +36,13 @@ object Tools {
     private val RISK = mapOf(
         "set_alarm" to Risk.LOW, "set_timer" to Risk.LOW, "set_reminder" to Risk.LOW,
         "open_app" to Risk.LOW, "torch" to Risk.LOW, "call_contact" to Risk.HIGH, "remember_fact" to Risk.LOW,
-        "screen_task" to Risk.LOW,
+        "screen_task" to Risk.LOW, "set_dnd" to Risk.LOW, "set_volume" to Risk.LOW, "wifi_panel" to Risk.LOW,
+        "propose_rule" to Risk.LOW,
     )
     val NAMES: List<String> = RISK.keys.toList()
 
     /** In the main chat screen only memory tools run; phone actions (alarm, call, torch…) come from the bubble. */
-    val MEMORY_NAMES: List<String> = listOf("remember_fact")
+    val MEMORY_NAMES: List<String> = listOf("remember_fact", "propose_rule")
 
     fun needsConfirm(c: ToolCall): Boolean = (RISK[c.name] ?: Risk.HIGH) != Risk.LOW || c.confirm
 
@@ -47,6 +52,16 @@ object Tools {
         return JSONObject()
             .put("now", SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(now))
             .put("weekday", SimpleDateFormat("EEEE", Locale("hi", "IN")).format(now))
+    }
+
+    /** now + weekday + whatever sensors are switched on (battery, place, foreground app, DND, next event ...). */
+    fun context(ctx: Context): JSONObject {
+        val o = context()
+        try {
+            val s = ContextEngine.snapshot(ctx).toJson()
+            s.keys().forEach { k -> if (!o.has(k)) o.put(k, s.get(k)) }
+        } catch (_: Exception) { }
+        return o
     }
 
     private fun fail(msg: String) = ToolPlan(Risk.LOW, "") { ToolResult(false, msg) }
@@ -106,6 +121,49 @@ object Tools {
                     else ToolResult(false, "यह याद नहीं रखा (बहुत छोटी या संवेदनशील बात)।")
                 }
             }
+            "set_dnd" -> {
+                val on = c.args.getBoolean("on")
+                ToolPlan(Risk.LOW, if (on) "DND चालू" else "DND बंद") {
+                    val nm = ctx.getSystemService(NotificationManager::class.java)
+                    if (!nm.isNotificationPolicyAccessGranted) {
+                        launch(ctx, Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                        ToolResult(false, "DND बदलने की अनुमति नहीं है। जो सेटिंग खुली है उसमें 'Stark Family' को चालू कीजिए।")
+                    } else {
+                        nm.setInterruptionFilter(if (on) NotificationManager.INTERRUPTION_FILTER_PRIORITY else NotificationManager.INTERRUPTION_FILTER_ALL)
+                        ToolResult(true, if (on) "DND चालू कर दिया।" else "DND बंद कर दिया।")
+                    }
+                }
+            }
+            "set_volume" -> {
+                val name = c.args.optString("stream", "media")
+                val pct = c.args.getInt("percent")
+                val stream = when (name) {
+                    "ring" -> AudioManager.STREAM_RING
+                    "alarm" -> AudioManager.STREAM_ALARM
+                    "notification" -> AudioManager.STREAM_NOTIFICATION
+                    else -> AudioManager.STREAM_MUSIC
+                }
+                ToolPlan(Risk.LOW, "आवाज़ ($name) $pct%") {
+                    try {
+                        val am = ctx.getSystemService(AudioManager::class.java)
+                        val max = am.getStreamMaxVolume(stream)
+                        am.setStreamVolume(stream, Math.round(max * pct / 100.0).toInt().coerceIn(0, max), 0)
+                        ToolResult(true, "आवाज़ ($name) $pct% पर कर दी।")
+                    } catch (e: SecurityException) {
+                        ToolResult(false, "यह आवाज़ बदलने के लिए DND की अनुमति चाहिए।")
+                    }
+                }
+            }
+            "wifi_panel" -> ToolPlan(Risk.LOW, "Wi-Fi का पैनल") {
+                if (Build.VERSION.SDK_INT >= 29 && launch(ctx, Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY))) {
+                    ToolResult(true, "Wi-Fi का पैनल खोल दिया। Android अपने-आप Wi-Fi चालू नहीं करने देता, स्विच आप दबाइए।")
+                } else if (launch(ctx, Intent(Settings.ACTION_WIFI_SETTINGS))) {
+                    ToolResult(true, "Wi-Fi की सेटिंग खोल दी। स्विच आप दबाइए।")
+                } else {
+                    ToolResult(false, "Wi-Fi का पैनल नहीं खुला।")
+                }
+            }
+            "propose_rule" -> fail("नियम सिखाना सिर्फ़ चैट से होता है (मंज़ूरी के साथ)।")
             "screen_task" -> fail("स्क्रीन-काम सिर्फ़ बबल से चलता है।")
             "call_contact" -> planCall(ctx, c.args.getString("contact"))
             else -> fail("यह औज़ार मेरे पास नहीं है: ${c.name}")
