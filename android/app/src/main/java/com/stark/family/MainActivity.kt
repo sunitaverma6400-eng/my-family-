@@ -106,6 +106,10 @@ class MainActivity : ComponentActivity() {
             startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_STOP))
             return
         }
+        if (KillSwitch.on(this)) {
+            Toast.makeText(this, "⛔ kill switch चालू है। पहले ▶ फिर चालू करो दबाइए।", Toast.LENGTH_LONG).show()
+            return
+        }
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "\"दूसरे ऐप्स के ऊपर दिखाएँ\" की अनुमति दीजिए, फिर वापस आकर 🫧 दोबारा दबाइए।", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
@@ -169,6 +173,17 @@ fun ChatScreen(vm: ChatViewModel, onBubble: () -> Unit) {
             HeaderBtn("🧭", ch.accent2) { vm.showRules = true }
             HeaderBtn("🧠", ch.accent2) { vm.openBrain() }
             HeaderBtn("⚙", ch.accent2) { vm.showSettings = true }
+        }
+        Box(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clip(RoundedCornerShape(10.dp))
+                .background(if (vm.killed) Color(0xFF3A0D0D) else Color(0xFF111111))
+                .border(1.dp, Color(0xFF8B2A2A), RoundedCornerShape(10.dp)).clickable { vm.toggleKill() }.padding(vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (vm.killed) "⛔ सब बंद है — ▶ फिर चालू करो" else "⛔ सब रोको (kill switch)",
+                color = if (vm.killed) Color(0xFFFF8A80) else Color(0xFFB07070), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+            )
         }
         Spacer(Modifier.height(4.dp))
 

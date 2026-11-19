@@ -75,6 +75,7 @@ VALIDATORS = {
     "set_volume": lambda a: {"stream": _choice(a.get("stream", "media"), ("media", "ring", "alarm", "notification")),
                              "percent": _int(a.get("percent"), 0, 100)},
     "wifi_panel": lambda a: {},
+    "battery_saver": lambda a: {},
     "propose_rule": lambda a: {"teaching": _str(a.get("teaching"), 300)},
     "screen_task": lambda a: {"goal": _str(a.get("goal"), 300)},
     "remember_fact": lambda a: {"fact": _fact(a.get("fact")), "importance": _int(a.get("importance", 3), 1, 5)},

@@ -60,6 +60,11 @@
       "risk": "low",
       "desc": "उपयोगकर्ता ने कोई नियम सिखाया ('जब X हो तब Y करो') तो उसे नियम-प्रस्ताव में बदलवाना; नियम तभी बनता है जब उपयोगकर्ता मंज़ूर करे",
       "args": "{\"teaching\": \"उपयोगकर्ता के अपने शब्द, ज्यों के त्यों\"}"
+    },
+    "battery_saver": {
+      "risk": "low",
+      "desc": "बैटरी सेवर की सेटिंग खोलना (चालू करने का स्विच उपयोगकर्ता दबाता है)",
+      "args": "{}"
     }
   },
   "permissions": {
@@ -75,7 +80,8 @@
       "set_dnd",
       "set_volume",
       "wifi_panel",
-      "propose_rule"
+      "propose_rule",
+      "battery_saver"
     ],
     "friday": [
       "set_alarm",
@@ -87,14 +93,16 @@
       "set_dnd",
       "set_volume",
       "wifi_panel",
-      "propose_rule"
+      "propose_rule",
+      "battery_saver"
     ],
     "edith": [
       "torch",
       "open_app",
       "remember_fact",
       "screen_task",
-      "propose_rule"
+      "propose_rule",
+      "battery_saver"
     ],
     "dume": [
       "torch",

@@ -569,6 +569,11 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(ok2[0]["name"], "wifi_panel")
         for who in ("jarvis", "vision", "ultron", "karen", "friday", "edith", "dume", "u"):
             self.assertIn("propose_rule", allowed_for(who, ["propose_rule"]), who)
+        for who in ("jarvis", "friday", "edith"):
+            self.assertIn("battery_saver", allowed_for(who, ["battery_saver"]), who)
+        self.assertNotIn("battery_saver", allowed_for("vision", ["battery_saver"]))
+        import rules
+        self.assertEqual(rules.validate_actions([{"tool": "battery_saver", "args": {}}], {"jarvis"})[0]["tool"], "battery_saver")
 
 
 class PersonaTests(unittest.TestCase):

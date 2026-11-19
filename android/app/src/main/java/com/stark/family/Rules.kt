@@ -107,9 +107,11 @@ object RuleModel {
     fun effectiveMax(actions: JSONArray): Int = if (hasHigh(actions)) 3 else 2
 
     /** The level actually used when the rule fires: risky actions can never run on their own. */
-    fun effectiveLevel(r: Rule): Int {
-        val l = r.level.coerceIn(1, 3)
-        return if (hasHigh(r) && l == 2) 3 else l
+    fun effectiveLevel(r: Rule, allowed: Set<Int> = setOf(1, 2, 3)): Int {
+        var l = r.level.coerceIn(1, 3)
+        if (hasHigh(r) && l == 2) l = 3
+        if (l in allowed) return l
+        return allowed.filter { it < l }.maxOrNull() ?: 1
     }
 
     fun levelName(l: Int) = when (l) {
@@ -150,6 +152,7 @@ object RuleModel {
         return when (a.optString("tool")) {
             "set_dnd" -> if (g.optBoolean("on")) "Do Not Disturb चालू" else "Do Not Disturb बंद"
             "set_volume" -> "आवाज़ (${g.optString("stream")}) ${g.optInt("percent")}%"
+            "battery_saver" -> "बैटरी सेवर की सेटिंग खोलना (स्विच आप दबाएँगे)"
             "wifi_panel" -> "Wi-Fi का पैनल खोलना (स्विच आप दबाएँगे: Android अपने-आप नहीं करने देता)"
             "open_app" -> "ऐप खोलना: ${g.optString("app")}"
             "torch" -> if (g.optBoolean("on")) "टॉर्च चालू" else "टॉर्च बंद"
@@ -242,6 +245,10 @@ object RuleTeacher {
         if (!resp.understood || o == null) return null to resp.question.ifBlank { "इसे नियम में नहीं बदल पाया। कब और क्या होना चाहिए, एक बार और साफ़ बताइए।" }
         return try {
             val actions = o.getJSONArray("actions")
+            val owner = o.optString("speaker", character)
+            if (RuleModel.hasHigh(actions) && 3 !in Autonomy.allowedLevels(ctx, owner)) {
+                return null to "${Characters.byId(owner).name} कॉल जैसे काम नहीं कर सकते (उनका स्तर: ${Autonomy.describe(ctx, owner)})। यह नियम Jarvis से सिखाइए।"
+            }
             val rule = Rule(
                 name = o.optString("name", "नया नियम").take(60), triggerJson = o.getJSONObject("trigger").toString(),
                 conditionsJson = (o.optJSONObject("conditions") ?: JSONObject()).toString(), actionsJson = actions.toString(),

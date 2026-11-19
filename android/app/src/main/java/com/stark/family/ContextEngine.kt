@@ -133,6 +133,29 @@ object ContextEngine {
         }
     }
 
+    /** First calendar event that starts between minAheadMs and maxAheadMs from now: (start millis, title). */
+    fun eventAfter(ctx: Context, minAheadMs: Long, maxAheadMs: Long): Pair<Long, String>? {
+        if (ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return null
+        return try {
+            val now = System.currentTimeMillis()
+            val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
+                .also { ContentUris.appendId(it, now); ContentUris.appendId(it, now + maxAheadMs) }.build()
+            ctx.contentResolver.query(
+                uri, arrayOf(CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN), null, null,
+                "${CalendarContract.Instances.BEGIN} ASC",
+            )?.use { cur ->
+                var found: Pair<Long, String>? = null
+                while (found == null && cur.moveToNext()) {
+                    val begin = cur.getLong(1)
+                    if (begin >= now + minAheadMs) found = begin to cur.getString(0).orEmpty().take(40)
+                }
+                found
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // ---- sleep-window guess: hours in which the screen was (almost) always off ----
 
     private fun readStats(p: Prefs): Array<IntArray> {

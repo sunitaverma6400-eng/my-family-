@@ -82,12 +82,16 @@ fun RulesScreen(ch: Character, onClose: () -> Unit) {
     var status by remember { mutableStateOf("") }
     var snap by remember { mutableStateOf(ContextEngine.snapshot(ctx)) }
     var confirmDelete by remember { mutableStateOf<Rule?>(null) }
+    var pats by remember { mutableStateOf(listOf<PatternState>()) }
+    var plogs by remember { mutableStateOf(listOf<ProactiveLog>()) }
 
     LaunchedEffect(tick) {
         rules = repo.dao.rules()
         logs = repo.dao.recentLogs(60)
         ruleLogs = if (openLogs >= 0) repo.dao.logsOf(openLogs, 10) else emptyList()
         snap = ContextEngine.snapshot(ctx)
+        pats = ProactiveDb.get(ctx).dao().patterns()
+        plogs = ProactiveDb.get(ctx).dao().logs(12)
     }
     BackHandler(onBack = onClose)
 
@@ -110,7 +114,7 @@ fun RulesScreen(ch: Character, onClose: () -> Unit) {
             Text("🧭 नियम और संदर्भ", color = ch.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("नियम", "संदर्भ", "लॉग").forEachIndexed { i, name ->
+            listOf("नियम", "संदर्भ", "सुझाव", "लॉग").forEachIndexed { i, name ->
                 Box(
                     Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (tab == i) ch.accent else CARD)
                         .clickable { tab = i; tick++ }.padding(vertical = 8.dp),
@@ -137,14 +141,14 @@ fun RulesScreen(ch: Character, onClose: () -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Text(r.name, color = FG, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("${who.name} · ${RuleModel.levelName(RuleModel.effectiveLevel(r))}${if (r.enabled) "" else " · बंद"}", color = who.accent, fontSize = 12.sp)
+                            Text("${who.name} · ${RuleModel.levelName(RuleModel.effectiveLevel(r, Autonomy.allowedLevels(ctx, r.speaker)))}${if (r.enabled) "" else " · बंद"}", color = who.accent, fontSize = 12.sp)
                             Text(RuleModel.describeRule(r).substringBefore("\nशुरुआत:"), color = FG, fontSize = 13.sp, lineHeight = 19.sp)
                             Text("हाँ कहा ${r.good} · मना ${r.bad}", color = DIM, fontSize = 11.sp)
                             val high = RuleModel.hasHigh(r)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 listOf(1 to "L1 सुझाव", 2 to "L2 अपने-आप", 3 to "L3 पूछकर").forEach { (l, name) ->
-                                    val allowed = l <= r.maxLevel && !(high && l == 2)
-                                    val on = RuleModel.effectiveLevel(r) == l
+                                    val allowed = l <= r.maxLevel && !(high && l == 2) && l in Autonomy.allowedLevels(ctx, r.speaker)
+                                    val on = RuleModel.effectiveLevel(r, Autonomy.allowedLevels(ctx, r.speaker)) == l
                                     Box(
                                         Modifier.clip(RoundedCornerShape(14.dp))
                                             .background(if (on) ch.accent else Color.Transparent)
@@ -156,6 +160,7 @@ fun RulesScreen(ch: Character, onClose: () -> Unit) {
                                 }
                             }
                             if (high) Text("कॉल जैसे काम हमेशा पूछकर ही होते हैं (L2 बंद)।", color = DIM, fontSize = 11.sp)
+                            Text("${who.name} का स्तर: ${Autonomy.describe(ctx, r.speaker)}", color = DIM, fontSize = 11.sp)
                             Row {
                                 TextButton(onClick = { scope.launch { repo.dao.updateRule(r.copy(enabled = !r.enabled)); repo.afterChange(); tick++ } }) {
                                     Text(if (r.enabled) "⏻ बंद" else "⏻ चालू", color = ch.accent2, fontSize = 13.sp)
@@ -232,6 +237,9 @@ fun RulesScreen(ch: Character, onClose: () -> Unit) {
                         }
                     }
                 }
+                2 -> {
+                    item { ProactivePanel(ch, tick, pats, plogs, scope, { tick++ }, { status = it }) }
+                }
                 else -> {
                     if (logs.isEmpty()) item { Text("अभी कोई लॉग नहीं। जब कोई नियम चलेगा या छूटेगा, यहाँ कारण के साथ दिखेगा।", color = DIM) }
                     items(logs) { l ->
@@ -303,5 +311,97 @@ fun RulesScreen(ch: Character, onClose: () -> Unit) {
             },
             dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("नहीं", color = DIM) } },
         )
+    }
+}
+
+
+@Composable
+private fun Sect(content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(CARD).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) { content() }
+}
+
+/** The "सुझाव" tab: kill switch, when/how often the AIs may speak up, who is muted, what they have learned about habits. */
+@Composable
+private fun ProactivePanel(
+    ch: Character, version: Int, pats: List<PatternState>, plogs: List<ProactiveLog>,
+    scope: kotlinx.coroutines.CoroutineScope, onChange: () -> Unit, onStatus: (String) -> Unit,
+) {
+    val ctx = LocalContext.current
+    val p = remember { Prefs(ctx) }
+    fun hh(min: Int) = String.format(Locale.US, "%02d:%02d", min / 60, min % 60)
+    val killed = KillSwitch.state
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Sect {
+            Text("⛔ Kill switch", color = ch.accent, fontWeight = FontWeight.Bold)
+            Text(
+                if (killed) "अभी सब बंद है: कोई नियम, सुझाव, स्क्रीन-काम या क्रिया नहीं चल रही। बबल भी बंद है।"
+                else "एक दबाव में सब रुक जाता है: नियम, सुझाव, स्क्रीन-काम, बबल और सारे किरदारों की क्रियाएँ। यही बटन नोटिफ़िकेशन में, बबल पर और मुख्य स्क्रीन पर भी है।",
+                color = DIM, fontSize = 12.sp,
+            )
+            TextButton(onClick = { if (killed) KillSwitch.resume(ctx) else KillSwitch.activate(ctx); onChange() }) {
+                Text(if (killed) "▶ फिर चालू करो" else "⛔ सब रोको", color = if (killed) GREEN else RED, fontWeight = FontWeight.Bold)
+            }
+        }
+        Sect {
+            Text("🔔 पहल (proactive सुझाव)", color = ch.accent, fontWeight = FontWeight.Bold)
+            Text("किरदार सिर्फ़ सुझाव देते हैं (आप हाँ/नहीं दबाते हैं)। शांत घंटों में, किसी स्क्रीन-काम या कॉल के दौरान, या सीमा पूरी होने पर चुप रहते हैं।", color = DIM, fontSize = 12.sp)
+            TextButton(onClick = { p.proactiveOn = !p.proactiveOn; onChange() }) { Text(if (p.proactiveOn) "चालू ✓ (बंद करने के लिए दबाइए)" else "बंद ✗ (चालू करने के लिए दबाइए)", color = if (p.proactiveOn) GREEN else RED) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("शांत घंटे: ${hh(p.quietStart)} – ${hh(p.quietEnd)}", color = FG, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            }
+            Row {
+                TextButton(onClick = { p.quietStart = p.quietStart - 30; onChange() }) { Text("शुरू −", color = ch.accent2, fontSize = 12.sp) }
+                TextButton(onClick = { p.quietStart = p.quietStart + 30; onChange() }) { Text("शुरू +", color = ch.accent2, fontSize = 12.sp) }
+                TextButton(onClick = { p.quietEnd = p.quietEnd - 30; onChange() }) { Text("अंत −", color = ch.accent2, fontSize = 12.sp) }
+                TextButton(onClick = { p.quietEnd = p.quietEnd + 30; onChange() }) { Text("अंत +", color = ch.accent2, fontSize = 12.sp) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("रोज़ ज़्यादा से ज़्यादा सुझाव: ${p.dailyLimit} (दो सुझावों के बीच कम से कम 90 मिनट)", color = FG, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { p.dailyLimit = p.dailyLimit - 1; onChange() }) { Text("−", color = ch.accent, fontSize = 22.sp) }
+                TextButton(onClick = { p.dailyLimit = p.dailyLimit + 1; onChange() }) { Text("＋", color = ch.accent, fontSize = 22.sp) }
+            }
+            TextButton(onClick = {
+                scope.launch { onStatus(if (Proactive.testNow(ctx)) "टेस्ट सुझाव नोटिफ़िकेशन में भेजा।" else "नहीं भेजा (kill switch चालू है?)।"); onChange() }
+            }) { Text("▶ टेस्ट: अभी एक सुझाव दिखाओ", color = ch.accent) }
+        }
+        Sect {
+            Text("किरदार: स्तर और म्यूट", color = ch.accent, fontWeight = FontWeight.Bold)
+            Characters.all.forEach { c ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(c.name, color = c.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(Autonomy.describe(ctx, c.id), color = DIM, fontSize = 11.sp)
+                    }
+                    TextButton(onClick = { p.setCharMuted(c.id, !p.charMuted(c.id)); onChange() }) {
+                        Text(if (p.charMuted(c.id)) "🔇 म्यूट" else "🔔 चालू", color = if (p.charMuted(c.id)) RED else GREEN, fontSize = 13.sp)
+                    }
+                }
+            }
+            Text("Ultron अभी सिर्फ़ देखने/सुझाने वाला (Observer) है। ऊपर उठाने पर भी हर बदलाव आपकी हाँ के बाद ही होगा।", color = DIM, fontSize = 11.sp)
+            TextButton(onClick = { p.ultronRaised = !p.ultronRaised; onChange() }) {
+                Text(if (p.ultronRaised) "Ultron: सुझाव + मंज़ूरी के साथ करना (अभी चालू) — वापस Observer करें" else "Ultron को 'मंज़ूरी के साथ करने' तक उठाओ", color = ch.accent)
+            }
+        }
+        Sect {
+            Text("🧠 देखी हुई आदतें (सिर्फ़ इसी फ़ोन पर)", color = ch.accent, fontWeight = FontWeight.Bold)
+            Text("जब आप किसी ऐप को रोज़ एक ही समय खोलते हैं, या घर से निकलकर हर बार एक ही ऐप खोलते हैं, तब Jarvis पूछता है कि क्या इसे नियम बना दे। सिर्फ़ ऐप का नाम और समय सहेजा जाता है, स्क्रीन की कोई सामग्री नहीं। बैंक/पासवर्ड ऐप कभी नहीं।", color = DIM, fontSize = 12.sp)
+            TextButton(onClick = { p.patternWatch = !p.patternWatch; onChange() }) { Text(if (p.patternWatch) "आदतें देखना: चालू ✓" else "आदतें देखना: बंद ✗", color = if (p.patternWatch) GREEN else RED) }
+            if (pats.isEmpty()) Text("अभी कोई आदत नहीं मिली।", color = DIM, fontSize = 12.sp)
+            pats.forEach { Text("• ${it.title} · ${when (it.status) { "accepted" -> "नियम बना"; "declined" -> "मना किया"; "muted" -> "कभी नहीं"; else -> "पूछा गया" }}", color = FG, fontSize = 13.sp) }
+            TextButton(onClick = { scope.launch { Proactive.forgetObservations(ctx); onStatus("देखी हुई सारी आदतें और घटनाएँ मिटा दीं।"); onChange() } }) { Text("🗑 देखी हुई आदतें मिटाओ", color = RED, fontSize = 13.sp) }
+        }
+        Sect {
+            Text("हाल के सुझाव", color = ch.accent, fontWeight = FontWeight.Bold)
+            if (plogs.isEmpty()) Text("अभी कोई सुझाव नहीं गया।", color = DIM, fontSize = 12.sp)
+            plogs.forEach { l ->
+                Text(
+                    "${SimpleDateFormat("dd MMM HH:mm", Locale.US).format(Date(l.ts))} · ${Characters.byId(l.character).name} · ${l.title} · ${when (l.decision) { "accepted" -> "✓ हाँ"; "declined" -> "✗ नहीं"; else -> "… पूछा" }}",
+                    color = DIM, fontSize = 12.sp,
+                )
+            }
+        }
     }
 }

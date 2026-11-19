@@ -13,8 +13,8 @@ android {
         applicationId = "com.stark.family"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "0.9.0"
+        versionCode = 12
+        versionName = "1.0.0"
     }
 
     // Fixed debug key (committed on purpose) so every CI build can be installed over the previous one.

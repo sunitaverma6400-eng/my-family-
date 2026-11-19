@@ -100,6 +100,8 @@ class OverlayService : Service() {
     companion object {
         const val ACTION_STOP = "com.stark.family.STOP_OVERLAY"
         const val ACTION_KILL = "com.stark.family.KILL_TASK"
+        const val ACTION_KILL_ALL = "com.stark.family.KILL_ALL"
+        @Volatile var taskRunning = false
         private const val CHANNEL = "stark_overlay"
         private const val NOTIF_ID = 11
         var running by mutableStateOf(false)
@@ -151,7 +153,18 @@ class OverlayService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_KILL) {
-            if (view != null) stopTask()  // kill switch for a running screen task
+            if (view != null) stopTask()  // stop only the running screen task
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_KILL_ALL) {
+            // The big kill switch: everything stops, characters go quiet, nothing restarts until the user resumes.
+            KillSwitch.activate(applicationContext, stopService = false)
+            if (view != null) stopTask()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (KillSwitch.on(applicationContext)) {
+            stopSelf()
             return START_NOT_STICKY
         }
         val n = buildNotification()
@@ -181,11 +194,15 @@ class OverlayService : Service() {
         val kill = PendingIntent.getService(
             this, 2, Intent(this, OverlayService::class.java).setAction(ACTION_KILL), PendingIntent.FLAG_IMMUTABLE,
         )
+        val killAll = PendingIntent.getService(
+            this, 3, Intent(this, OverlayService::class.java).setAction(ACTION_KILL_ALL), PendingIntent.FLAG_IMMUTABLE,
+        )
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Stark Family बबल चालू है")
             .setContentText("परिवार किसी भी ऐप के ऊपर बुलाया जा सकता है")
             .setContentIntent(open)
+            .addAction(Notification.Action.Builder(0, "⛔ सब रोको", killAll).build())
             .addAction(Notification.Action.Builder(0, "⏹ काम रोको", kill).build())
             .addAction(Notification.Action.Builder(0, "बंद करें", stop).build())
             .setOngoing(true)
@@ -228,6 +245,7 @@ class OverlayService : Service() {
                 onDrag = { dx, dy -> drag(dx, dy) },
                 onCollapse = { changeMode(Mode.BUBBLE) },
                 onStop = { stopTask() },
+                onKillAll = { KillSwitch.activate(applicationContext, stopService = false); stopTask(); stopSelf() },
             )
         }
         view = v
@@ -304,6 +322,10 @@ class OverlayService : Service() {
     }
 
     private suspend fun runTools(calls: List<ToolCall>, who: String) {
+        if (KillSwitch.on(applicationContext)) {
+            if (calls.isNotEmpty()) results.add("⛔ kill switch चालू है: कोई क्रिया नहीं होगी।")
+            return
+        }
         for (c in calls.take(3)) {
             if (c.name == "screen_task") {
                 runAgent(c.args.optString("goal"), who)
@@ -325,6 +347,7 @@ class OverlayService : Service() {
                 }
             }
             val res = plan.run()
+            if (res.ok) Proactive.logTool(applicationContext, c.name, c.args)
             results.add((if (res.ok) "✓ " else "✗ ") + res.message)
         }
     }
@@ -396,6 +419,7 @@ class OverlayService : Service() {
         lastWho = who
         report = null
         agentRunning = true
+        taskRunning = true
         pauseGate = null
         hud = AgentHud(line = "शुरू कर रहा हूँ…", max = prefs.agentMaxSteps)
         changeMode(Mode.WORKING)
@@ -404,6 +428,7 @@ class OverlayService : Service() {
             out = AgentRunner(applicationContext, client, ui, prefs.agentMaxSteps, prefs.blockedPkgs).run(goal, who, prefs.relayUrl, prefs.token)
         } finally {
             agentRunning = false
+            taskRunning = false
             pauseGate = null
             hideHighlight()
             changeMode(Mode.CHAT)

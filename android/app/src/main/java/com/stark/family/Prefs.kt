@@ -46,4 +46,43 @@ class Prefs(ctx: Context) {
     var hourStats: String
         get() = sp.getString("hour_stats", "") ?: ""
         set(v) { sp.edit().putString("hour_stats", v).apply() }
+
+    // ---- proactive behaviour + kill switch ----
+    /** Kill switch: while true, no rule, suggestion, agent task or tool runs. Survives restarts. */
+    var killed: Boolean
+        get() = sp.getBoolean("killed", false)
+        set(v) { sp.edit().putBoolean("killed", v).apply() }
+
+    var proactiveOn: Boolean
+        get() = sp.getBoolean("proactive_on", true)
+        set(v) { sp.edit().putBoolean("proactive_on", v).apply() }
+
+    /** Watch app/place habits (stored only on this phone) so the AIs can propose rules. */
+    var patternWatch: Boolean
+        get() = sp.getBoolean("pattern_watch", true)
+        set(v) { sp.edit().putBoolean("pattern_watch", v).apply() }
+
+    /** Quiet hours in minutes after midnight; default 00:00 to 07:00. */
+    var quietStart: Int
+        get() = sp.getInt("quiet_start", 0)
+        set(v) { sp.edit().putInt("quiet_start", ((v % 1440) + 1440) % 1440).apply() }
+    var quietEnd: Int
+        get() = sp.getInt("quiet_end", 420)
+        set(v) { sp.edit().putInt("quiet_end", ((v % 1440) + 1440) % 1440).apply() }
+
+    var dailyLimit: Int
+        get() = sp.getInt("daily_limit", 4).coerceIn(1, 12)
+        set(v) { sp.edit().putInt("daily_limit", v.coerceIn(1, 12)).apply() }
+
+    /** Ultron starts as an Observer (suggest only). Raising lets him act only with a "yes" each time. */
+    var ultronRaised: Boolean
+        get() = sp.getBoolean("ultron_raised", false)
+        set(v) { sp.edit().putBoolean("ultron_raised", v).apply() }
+
+    fun charMuted(id: String): Boolean = sp.getBoolean("muted_$id", false)
+    fun setCharMuted(id: String, v: Boolean) { sp.edit().putBoolean("muted_$id", v).apply() }
+
+    var mutedTypes: Set<String>
+        get() = HashSet(sp.getStringSet("muted_types", emptySet()) ?: emptySet())
+        set(v) { sp.edit().putStringSet("muted_types", HashSet(v)).apply() }
 }

@@ -36,7 +36,7 @@ object Tools {
     private val RISK = mapOf(
         "set_alarm" to Risk.LOW, "set_timer" to Risk.LOW, "set_reminder" to Risk.LOW,
         "open_app" to Risk.LOW, "torch" to Risk.LOW, "call_contact" to Risk.HIGH, "remember_fact" to Risk.LOW,
-        "screen_task" to Risk.LOW, "set_dnd" to Risk.LOW, "set_volume" to Risk.LOW, "wifi_panel" to Risk.LOW,
+        "screen_task" to Risk.LOW, "set_dnd" to Risk.LOW, "set_volume" to Risk.LOW, "wifi_panel" to Risk.LOW, "battery_saver" to Risk.LOW,
         "propose_rule" to Risk.LOW,
     )
     val NAMES: List<String> = RISK.keys.toList()
@@ -162,6 +162,10 @@ object Tools {
                 } else {
                     ToolResult(false, "Wi-Fi का पैनल नहीं खुला।")
                 }
+            }
+            "battery_saver" -> ToolPlan(Risk.LOW, "बैटरी सेवर की सेटिंग") {
+                if (launch(ctx, Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))) ToolResult(true, "बैटरी सेवर की सेटिंग खोल दी। चालू करने का स्विच आप दबाइए।")
+                else ToolResult(false, "बैटरी सेवर की सेटिंग नहीं खुली।")
             }
             "propose_rule" -> fail("नियम सिखाना सिर्फ़ चैट से होता है (मंज़ूरी के साथ)।")
             "screen_task" -> fail("स्क्रीन-काम सिर्फ़ बबल से चलता है।")

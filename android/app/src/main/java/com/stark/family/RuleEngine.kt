@@ -61,6 +61,8 @@ object RuleEngine {
 
     /** Called by the accessibility service on every window change: cheap exit when no rule watches apps. */
     fun onAppOpened(ctx: Context, pkg: String) {
+        if (KillSwitch.on(ctx)) return
+        Proactive.logApp(ctx, pkg)
         if (appKeys.isEmpty()) return
         val label = labels.getOrPut(pkg) {
             try {
@@ -116,6 +118,7 @@ object RuleEngine {
     }
 
     suspend fun handle(ctx: Context, ev: RuleEvent) {
+        if (KillSwitch.on(ctx)) return
         val repo = RuleRepo.get(ctx)
         val rules = repo.dao.rules().filter { it.enabled }
         if (rules.isEmpty()) return
@@ -136,7 +139,7 @@ object RuleEngine {
             val cur = r.copy(lastFired = now)
             repo.dao.updateRule(cur)
             val reason = "${RuleModel.describeTrigger(t)} हुआ और शर्तें ठीक थीं"
-            when (RuleModel.effectiveLevel(cur)) {
+            when (RuleModel.effectiveLevel(cur, Autonomy.allowedLevels(ctx, cur.speaker))) {
                 1 -> suggest(ctx, cur, reason, ev.type)
                 2 -> {
                     val res = runActions(ctx, cur, approved = false)
@@ -164,6 +167,10 @@ object RuleEngine {
                 continue
             }
             val call = ToolCall("r$i", tool, args, "low", false)
+            if (Tools.needsConfirm(call) && 3 !in Autonomy.allowedLevels(ctx, r.speaker)) {
+                out.add("✗ ‘$tool’ ${Characters.byId(r.speaker).name} नहीं कर सकते (उनका स्तर: ${Autonomy.describe(ctx, r.speaker)})")
+                continue
+            }
             if (Tools.needsConfirm(call) && !approved) {
                 out.add("✗ ‘$tool’ आपकी हाँ के बिना नहीं चलता")
                 continue
@@ -316,8 +323,22 @@ object RuleScheduler {
         return null
     }
 
+    fun cancelAlarm(ctx: Context) {
+        val app = ctx.applicationContext
+        app.getSystemService(AlarmManager::class.java).cancel(
+            PendingIntent.getBroadcast(
+                app, 777, Intent(app, RuleAlarmReceiver::class.java).putExtra("at", ""),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ),
+        )
+    }
+
     suspend fun reschedule(ctx: Context) {
         val app = ctx.applicationContext
+        if (KillSwitch.on(app)) {
+            cancelAlarm(app)
+            return
+        }
         val am = app.getSystemService(AlarmManager::class.java)
         val pi = { at: String ->
             PendingIntent.getBroadcast(
@@ -409,8 +430,8 @@ class GeofenceReceiver : BroadcastReceiver() {
         if (ev.hasError()) return
         val p = Prefs(ctx)
         when (ev.geofenceTransition) {
-            Geofence.GEOFENCE_TRANSITION_ENTER -> { p.place = "home"; RuleEngine.fireAsync(ctx, RuleEvent("enter_home")) }
-            Geofence.GEOFENCE_TRANSITION_EXIT -> { p.place = "outside"; RuleEngine.fireAsync(ctx, RuleEvent("exit_home")) }
+            Geofence.GEOFENCE_TRANSITION_ENTER -> { p.place = "home"; Proactive.logPlace(ctx, "enter_home"); RuleEngine.fireAsync(ctx, RuleEvent("enter_home")) }
+            Geofence.GEOFENCE_TRANSITION_EXIT -> { p.place = "outside"; Proactive.logPlace(ctx, "exit_home"); RuleEngine.fireAsync(ctx, RuleEvent("exit_home")) }
         }
     }
 }
@@ -419,6 +440,7 @@ class GeofenceReceiver : BroadcastReceiver() {
 class ContextWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
         val app = applicationContext
+        if (KillSwitch.on(app)) return Result.success()
         try {
             ContextEngine.recordHour(app)
             val sit = ContextEngine.snapshot(app)
@@ -426,6 +448,7 @@ class ContextWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             if (b != null && sit.charging != true) RuleEngine.handle(app, RuleEvent("battery", b.toString()))
             RuleScheduler.reschedule(app)
             Geo.ensure(app)
+            Proactive.tick(app)
         } catch (_: Exception) { }
         return Result.success()
     }
@@ -434,6 +457,7 @@ class ContextWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
 object Background {
     fun start(ctx: Context) {
         val app = ctx.applicationContext
+        if (KillSwitch.on(app)) return
         val req = PeriodicWorkRequestBuilder<ContextWorker>(15, TimeUnit.MINUTES).build()
         WorkManager.getInstance(app).enqueueUniquePeriodicWork("stark_ctx", ExistingPeriodicWorkPolicy.KEEP, req)
         CoroutineScope(Dispatchers.Default).launch {

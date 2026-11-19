@@ -118,6 +118,7 @@ fun OverlayUi(
     hud: AgentHud, onResume: () -> Unit, report: String?, onRerun: () -> Unit,
     onInput: (String) -> Unit, onSend: (String) -> Unit, onPick: (Character) -> Unit,
     onBubbleTap: () -> Unit, onDrag: (Float, Float) -> Unit, onCollapse: () -> Unit, onStop: () -> Unit,
+    onKillAll: () -> Unit,
 ) {
     StarkTheme(ch) {
         when (mode) {
@@ -164,6 +165,7 @@ fun OverlayUi(
                     }
                     if (hud.paused) TextButton(onClick = onResume) { Text("▶", color = Color(0xFF5BE38A), fontSize = 20.sp) }
                     TextButton(onClick = onStop) { Text("⏹", color = Color(0xFFFF5D5D), fontSize = 20.sp) }
+                    TextButton(onClick = onKillAll) { Text("⛔", fontSize = 18.sp) }
                 }
                 if (hud.paused) Text("आपने स्क्रीन छुई, इसलिए रुका हूँ। ▶ से जारी रखिए, ⏹ से रोकिए।", color = DIM, fontSize = 12.sp)
                 else Text("🔒 स्क्रीन की जानकारी सिर्फ़ आपके relay और LLM तक जाती है", color = DIM, fontSize = 10.sp)
@@ -204,6 +206,7 @@ fun OverlayUi(
                             color = DIM, fontSize = 12.sp,
                         )
                     }
+                    TextButton(onClick = onKillAll) { Text("⛔", fontSize = 16.sp) }
                     TextButton(onClick = onCollapse) { Text("✕", color = DIM, fontSize = 18.sp) }
                 }
                 if (report != null) {

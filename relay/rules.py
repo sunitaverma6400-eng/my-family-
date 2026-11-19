@@ -11,7 +11,7 @@ from memorykit import is_sensitive
 
 TRIGGERS = {"time", "enter_home", "exit_home", "app_open", "battery_below"}
 RULE_TOOLS = ["set_alarm", "set_timer", "set_reminder", "open_app", "torch", "set_dnd", "set_volume",
-              "wifi_panel", "say", "remember_fact", "call_contact"]
+              "wifi_panel", "battery_saver", "say", "remember_fact", "call_contact"]
 HIGH = {"call_contact"}
 HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
@@ -162,7 +162,7 @@ def build_messages(data, persona_ids):
         "headphones (bool), network (wifi|mobile|none), screen_on (bool).\n"
         "actions (1 से 4):\n"
         '- set_dnd {"on": bool}   - set_volume {"stream": "media|ring|alarm|notification", "percent": 0-100}\n'
-        '- wifi_panel {} (Android Wi-Fi अपने-आप चालू नहीं करने देता: सिर्फ़ पैनल खुलता है; summary में यह साफ़ लिखो)\n'
+        '- wifi_panel {} (Android Wi-Fi अपने-आप चालू नहीं करने देता: सिर्फ़ पैनल खुलता है; summary में यह साफ़ लिखो)   - battery_saver {} (बैटरी सेवर की सेटिंग खुलती है)\n'
         '- open_app {"app": "नाम"}   - torch {"on": bool}   - set_alarm {"hour": 0-23, "minute": 0-59, "label": ""}\n'
         '- set_timer {"seconds": 1-86400}   - set_reminder {"hour": 0-23, "minute": 0-59, "text": ""}\n'
         '- say {"character": "' + "|".join(sorted(persona_ids)) + '", "text": "उस किरदार के लहजे में एक छोटा हिंदी वाक्य"}  ("Friday good evening बोले" -> say)\n'

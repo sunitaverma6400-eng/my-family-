@@ -49,6 +49,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var showSkills by mutableStateOf(false)
     var showRules by mutableStateOf(false)
 
+    /** The kill switch: while on, no rule, suggestion, agent task or tool runs. */
+    val killed: Boolean get() = KillSwitch.state
+
+    fun toggleKill() {
+        if (KillSwitch.on(getApplication<Application>())) KillSwitch.resume(getApplication<Application>())
+        else KillSwitch.activate(getApplication<Application>())
+    }
+
     /** A taught rule waiting for the user's yes/no (nothing is saved before that). */
     var ruleDraft by mutableStateOf<RuleDraft?>(null)
 
@@ -66,6 +74,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
+        KillSwitch.on(app)
         viewModelScope.launch { repo.maintain(relayUrl, token) }
     }
 
@@ -120,6 +129,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         list.add(Msg(Kind.AI, r.speech, meta))
                         repo.addEpisode(ch.id, t, r.speech, r.toolCalls.joinToString(",") { it.name })
                         for (c in r.toolCalls.filter { it.name in Tools.MEMORY_NAMES }.take(3)) {
+                            if (KillSwitch.on(getApplication<Application>())) {
+                                list.add(Msg(Kind.NOTE, "⛔ kill switch चालू है: कोई क्रिया नहीं हुई।"))
+                                break
+                            }
                             if (c.name == "propose_rule") {
                                 proposeRule(c.args.optString("teaching"), ch.id, list)
                                 continue
