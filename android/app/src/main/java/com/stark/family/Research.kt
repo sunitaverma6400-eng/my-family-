@@ -81,6 +81,7 @@ object ResearchNotes {
         if (r.degraded || r.refused.isNotBlank() || r.confidence < 0.3 || MemoryRepo.isSensitive(r.answer)) return@withContext
         val now = System.currentTimeMillis()
         MemoryRepo.get(ctx).dao.insertNote(Note(character = OWNER, text = encode(query, r, now), ts = now))
+        Unit
     }
 
     /** Best matching note that may be reused instead of searching again (needs most of the query words to match). */
