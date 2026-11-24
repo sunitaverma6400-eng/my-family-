@@ -273,6 +273,33 @@ class Endpoints(unittest.TestCase):
             self.assertIn("research", T.allowed_for(cid, ["research"]))
 
 
+class ReasonsNeverEmpty(unittest.TestCase):
+    CFG = {"request": {"timeout_s": 5, "max_attempts_per_provider": 3, "max_attempts_total": 8, "temperature": 0.7, "max_tokens": 100},
+           "breaker": {"threshold": 6, "open_s": 60},
+           "tiers": {"search": [{"provider": "groq", "model": "groq/compound-mini"}, {"provider": "gemini", "model": "g"}]},
+           "research": {"model": "g", "timeout_s": 5}, "characters": {}}
+
+    def test_no_keys_gives_reasons(self):
+        r = Router(self.CFG, env={}, transport=lambda *a, **k: None)
+        with self.assertRaises(AllBusy) as cm:
+            r.complete("search", [{"role": "user", "content": "x"}])
+        self.assertEqual(len(cm.exception.errors), 2)
+        with self.assertRaises(AllBusy) as cm2:
+            r.search_grounded("q")
+        self.assertTrue(cm2.exception.errors)
+
+    def test_cooling_key_gives_reason(self):
+        r = Router(self.CFG, env={"GEMINI_KEYS": '["k1111"]'}, transport=lambda *a, **k: None)
+        r.keys["gemini"][0].cooling_until = r.now() + 999
+        with self.assertRaises(AllBusy) as cm:
+            r.search_grounded("q")
+        self.assertIn("gemini:no_healthy_key (cooling)", cm.exception.errors)
+
+    def test_health_reports_version(self):
+        c = create_app(router=FakeRouter(), personas=PERSONAS, token="t").test_client()
+        self.assertEqual(c.get("/health").get_json()["version"], "m10d")
+
+
 class GroundedSearchInRouter(unittest.TestCase):
     CFG = {"request": {"timeout_s": 5, "max_attempts_per_provider": 3, "max_attempts_total": 8, "temperature": 0.7, "max_tokens": 100},
            "breaker": {"threshold": 6, "open_s": 60}, "tiers": {"fast": [{"provider": "gemini", "model": "g"}]},

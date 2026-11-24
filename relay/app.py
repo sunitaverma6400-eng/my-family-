@@ -27,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("relay")
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+VERSION = "m10d"  # shown at /health: confirms which relay code is actually running
 
 
 def create_app(router=None, personas=None, token=None):
@@ -46,7 +47,7 @@ def create_app(router=None, personas=None, token=None):
 
     @app.get("/health")
     def health():
-        return jsonify(ok=True, time=int(time.time()), characters=list(personas))
+        return jsonify(ok=True, version=VERSION, time=int(time.time()), characters=list(personas))
 
     @app.get("/test")
     def test_page():

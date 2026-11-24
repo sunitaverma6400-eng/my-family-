@@ -71,6 +71,18 @@
       },
       {
         "provider": "groq",
+        "model": "openai/gpt-oss-120b",
+        "params": {
+          "tools": [
+            {
+              "type": "browser_search"
+            }
+          ],
+          "reasoning_effort": "low"
+        }
+      },
+      {
+        "provider": "groq",
         "model": "groq/compound"
       }
     ]

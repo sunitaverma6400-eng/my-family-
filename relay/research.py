@@ -126,7 +126,7 @@ def ddg_search(query, get=None, limit=5, info=None):
     info = info if info is not None else {}
     try:
         resp = get("https://html.duckduckgo.com/html/", params={"q": query},
-                   headers={"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36"}, timeout=15)
+                   headers={"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36"}, timeout=8)
         if resp.status_code != 200:
             info["why"] = f"ddg:http {resp.status_code}"
             return []

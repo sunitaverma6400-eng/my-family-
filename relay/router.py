@@ -333,11 +333,13 @@ class Router:
         for entry in chain:
             prov, model = entry["provider"], entry["model"]
             if not self._provider_ready(prov, model):
+                errors.append(f"{prov}/{model}:{'no_key' if not self.keys.get(prov) else 'cooling/skipped'}")
                 continue
             used = 0
             while used < req["max_attempts_per_provider"] and total < req["max_attempts_total"]:
                 ks = self._pick_key(prov)
                 if ks is None:
+                    errors.append(f"{prov}/{model}:no_healthy_key")
                     break
                 used += 1
                 total += 1
@@ -374,6 +376,7 @@ class Router:
         for _ in range(self.cfg["request"]["max_attempts_per_provider"]):
             ks = self._pick_key("gemini")
             if ks is None:
+                errors.append("gemini:no_healthy_key (cooling)")
                 break
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
             body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
