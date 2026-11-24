@@ -17,8 +17,9 @@ PERSONAS = load_personas()
 class FakeRouter:
     """complete(): pops scripted replies (str or Exception). search_grounded(): scripted too."""
 
-    def __init__(self, replies=(), search=None):
+    def __init__(self, replies=(), search=None, compound=None):
         self.replies, self.search, self.calls, self.search_calls = list(replies), search, [], 0
+        self.compound = compound  # (text, raw) for the "search" tier, or None = that path is down
         self.cfg, self.keys = {"tiers": {}, "request": {}}, {}
 
     def now(self):
@@ -28,6 +29,10 @@ class FakeRouter:
         return "fast"
 
     def complete(self, tier, messages, temperature=None, max_tokens=None):
+        if tier == "search":
+            if self.compound is None:
+                raise AllBusy(10, ["groq/compound:model"])
+            return Result(self.compound[0], "groq", "groq/compound-mini", "…", 1, tier, self.compound[1])
         self.calls.append(messages)
         if not self.replies:
             raise AllBusy(10, ["none_left"])
@@ -81,6 +86,29 @@ class ResearchRun(unittest.TestCase):
         r = research.run(FakeRouter(search=GROUNDED), PERSONAS["vision"], "diabetes symptoms", proactive=False)
         self.assertNotIn("refused", r)
 
+    def test_groq_compound_path_with_sources(self):
+        raw = {"choices": [{"message": {"executed_tools": [
+            {"search_results": {"results": [{"title": "T1", "url": "https://a.org/x"}, {"title": "dup", "url": "https://a.org/x"},
+                                             {"title": "T2", "url": "https://b.org/y"}]}}]}}]}
+        txt = J(answer="जवाब हिंदी में यहाँ है।", known="x", guessed="", confidence=0.9, time_sensitive=False)
+        fr = FakeRouter(search=AllBusy(10, ["gemini:auth"]), compound=(txt, raw))
+        r = research.run(fr, PERSONAS["edith"], "some tech query")
+        self.assertFalse(r["degraded"])
+        self.assertEqual([s["url"] for s in r["sources"]], ["https://a.org/x", "https://b.org/y"])
+        self.assertIn("compound", r["via"])
+        self.assertEqual(r["confidence"], 0.9)
+
+    def test_compound_without_urls_caps_confidence(self):
+        txt = J(answer="जवाब हिंदी में यहाँ है।", known="x", guessed="", confidence=0.95, time_sensitive=False)
+        fr = FakeRouter(search=AllBusy(10, ["x"]), compound=(txt, {"choices": [{"message": {}}]}))
+        r = research.run(fr, PERSONAS["edith"], "some tech query")
+        self.assertLessEqual(r["confidence"], 0.5)
+        self.assertEqual(r["sources"], [])
+
+    def test_compound_sources_never_crash(self):
+        for raw in (None, {}, {"choices": []}, {"choices": [{"message": {"executed_tools": [{"search_results": None}, 5]}}]}):
+            self.assertEqual(research.compound_sources(raw), [])
+
     def test_fallback_to_page_search(self):
         class Resp:
             status_code = 200
@@ -92,6 +120,14 @@ class ResearchRun(unittest.TestCase):
         self.assertFalse(r["degraded"])
         self.assertEqual(r["sources"][0]["url"], "https://example.com/a")
         self.assertLessEqual(r["confidence"], 0.6)  # snippets never earn high confidence
+
+    def test_diag_reason_in_errors(self):
+        class Resp:
+            status_code = 202
+            text = ""
+
+        r = research.run(FakeRouter(), PERSONAS["edith"], "some tech query", ddg=lambda *a, **k: Resp())
+        self.assertTrue(any("ddg:http 202" in e for e in r["errors"]))
 
     def test_everything_down_degrades(self):
         class Resp:
@@ -162,6 +198,18 @@ class AskFamily(unittest.TestCase):
         out = self.run_it(fr, question="आज दिल्ली का मौसम कैसा है?")
         self.assertNotIn("ask_peer", [s["kind"] for s in out["steps"]])
         self.assertEqual(out["hops"], 1)
+
+    def test_needs_fresh_alone_does_not_skip_the_best_peer(self):
+        # the model over-flags "needs_fresh" on an ordinary why-question: Edith must still be asked
+        fr = FakeRouter([J(known=False, answer="", needs_fresh=True), J(known=True, answer="स्क्रीन और बैकग्राउंड ऐप्स।"), "सर, एडिथ के मुताबिक़ स्क्रीन और ऐप्स।"])
+        out = self.run_it(fr)
+        self.assertIn("ask_peer", [s["kind"] for s in out["steps"]])
+
+    def test_failed_research_shows_reason(self):
+        fr = FakeRouter([J(known=False, answer="", needs_fresh=True), "सर, पक्का जवाब नहीं मिला।"], search=AllBusy(10, ["gemini/m:rate:429 quota"]))
+        out = self.run_it(fr, question="आज का स्कोर क्या है?")
+        txt = [s["text"] for s in out["steps"] if s["kind"] == "research_result"][0]
+        self.assertIn("429", txt)
 
     def test_nothing_found_is_honest(self):
         fr = FakeRouter([J(known=False, answer="", needs_fresh=False), J(known=False, answer=""),

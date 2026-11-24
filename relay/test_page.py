@@ -15,6 +15,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0f1729;padding:10px;b
 <button onclick="chat()">भेजो</button>
 <button class="alt" onclick="get('/brain_status')">Brain Status</button>
 <button class="alt" onclick="get('/diag')">मॉडल जाँच</button>
+<button class="alt" onclick="get('/research/diag')">खोज जाँच</button>
 <pre id="out">यहाँ नतीजा दिखेगा।</pre>
 <script>
 const $=id=>document.getElementById(id);

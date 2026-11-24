@@ -140,7 +140,8 @@ def run(router, personas, data, ddg=None, clock=time.time):
         obj, _ = _ask_json(router, budget, ap, memory,
                            f"उपयोगकर्ता का सवाल: \"{question}\"\n"
                            "सिर्फ़ तभी जवाब दो जब याददाश्त या पक्की जानकारी से सचमुच पता हो। अंदाज़े पर known true मत करना। "
-                           "ताज़ा चीज़ें (ख़बर, दाम, स्कोर, मौसम, कोई नया तथ्य) तुम्हें पक्का नहीं पता हो सकतीं: needs_fresh true करो।\n"
+                           "needs_fresh सिर्फ़ तब true करो जब जवाब आज/हाल की चीज़ पर टिका हो (ख़बर, दाम, स्कोर, मौसम, नई रिलीज़)। "
+                           "समझाने वाले, तकनीकी या सामान्य ज्ञान के सवाल (जैसे बैटरी क्यों ख़त्म होती है) ताज़ा नहीं हैं: false रखो।\n"
                            'सिर्फ़ JSON: {"known": true या false, "answer": "हिंदी में, छोटा", "needs_fresh": true या false}')
         if obj.get("known") is True and obj.get("answer") and not obj.get("needs_fresh"):
             text = strip_emoji(str(obj["answer"]))[:700]
@@ -150,10 +151,13 @@ def run(router, personas, data, ddg=None, clock=time.time):
         steps.append({"kind": "unsure", "who": asker, "to": "family",
                       "text": "मुझे इसका पक्का जवाब नहीं पता।" if not obj.get("needs_fresh") else "यह ताज़ा जानकारी है; मेरे पास पक्की नहीं है।",
                       "known": False})
-        fresh = bool(obj.get("needs_fresh")) or research_mod.looks_time_sensitive(question)
-
-        # ---- 2. hop 1: best peer (skipped for fresh facts when research is allowed: a peer cannot know them) ----
         ranked = rank_peers(question, asker, adj, personas=personas)
+        # A peer cannot know live facts: skip straight to research for those. The model's own "needs_fresh" alone is not
+        # trusted when a talented peer exists (it over-flags ordinary how/why questions).
+        fresh = research_mod.looks_time_sensitive(question) or (
+            bool(obj.get("needs_fresh")) and not (ranked and ranked[0][1] >= lim["min_peer_score"]))
+
+        # ---- 2. hop 1: best peer ----
         domain = classify(question)[0][0]
         if not (fresh and allow_research):
             cand = [r for r in ranked if r[1] >= lim["min_peer_score"]][:1]
@@ -185,7 +189,9 @@ def run(router, personas, data, ddg=None, clock=time.time):
                 r = research_mod.run(router, personas[rid], question, redact)
                 if r.get("degraded"):
                     degraded = True
-                    steps.append({"kind": "research_result", "who": rid, "to": asker, "text": "अभी खोज नहीं हो पाई (सर्वर व्यस्त)।", "known": False})
+                    why = "; ".join(str(x) for x in (r.get("errors") or [])[:3])[:200]
+                    steps.append({"kind": "research_result", "who": rid, "to": asker,
+                                  "text": "अभी खोज नहीं हो पाई" + (f" [{why}]" if why else "") + "।", "known": False})
                 elif r.get("refused"):
                     steps.append({"kind": "research_result", "who": rid, "to": asker, "text": r["answer"], "known": False})
                 elif r["confidence"] >= 0.3:

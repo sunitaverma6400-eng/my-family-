@@ -27,7 +27,7 @@ PROVIDERS = {
     "openrouter": {"url": "https://openrouter.ai/api/v1/chat/completions", "env": "OPENROUTER_KEYS"},
 }
 
-AUTH_COOL_S = 6 * 3600
+AUTH_COOL_S = 30 * 60  # a rejected key is retried every 30 min (one cheap call), not locked out for hours
 MODEL_COOL_S = 600
 BAD_REQUEST_COOL_S = 120
 
@@ -56,6 +56,7 @@ class Result:
     key_hint: str
     attempts: int
     tier: str
+    raw: dict = None  # provider's JSON reply (used to read search sources of Groq Compound)
 
 
 @dataclass
@@ -315,12 +316,13 @@ class Router:
             kind, ra = _classify(status, resp.headers, body)
             raise _Fail(kind, status, ra, body)
         try:
-            text = _clean(resp.json()["choices"][0]["message"]["content"])
+            data = resp.json()
+            text = _clean(data["choices"][0]["message"]["content"])
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             raise _Fail("empty", status, detail="bad response shape")
         if not text:
             raise _Fail("empty", status, detail="empty text")
-        return text
+        return text, data
 
     def complete(self, tier, messages, temperature=None, max_tokens=None):
         req = self.cfg["request"]
@@ -340,7 +342,7 @@ class Router:
                 used += 1
                 total += 1
                 try:
-                    text = self._call(ks, model, messages, temperature, max_tokens, entry.get("params"))
+                    text, raw = self._call(ks, model, messages, temperature, max_tokens, entry.get("params"))
                 except _Fail as f:
                     errors.append(f"{prov}/{model}:{f.kind}")
                     self._on_failure(ks, model, f)
@@ -351,7 +353,7 @@ class Router:
                     continue
                 self._on_success(ks)
                 log.info("ok tier=%s provider=%s model=%s key=%s attempts=%d", tier, prov, model, ks.kid, total)
-                return Result(text, prov, model, ks.hint, total, tier)
+                return Result(text, prov, model, ks.hint, total, tier, raw if isinstance(raw, dict) else None)
             if total >= req["max_attempts_total"]:
                 break
         raise AllBusy(self._soonest_retry(), errors)
@@ -386,8 +388,9 @@ class Router:
                 except requests.RequestException as e:
                     raise _Fail("timeout", detail=type(e).__name__)
                 if resp.status_code != 200:
-                    kind, ra = _classify(resp.status_code, resp.headers, (getattr(resp, "text", "") or "")[:300])
-                    raise _Fail(kind, resp.status_code, ra)
+                    body = (getattr(resp, "text", "") or "")[:300].replace(ks.key, "***")
+                    kind, ra = _classify(resp.status_code, resp.headers, body)
+                    raise _Fail(kind, resp.status_code, ra, body)
                 try:
                     j = resp.json()
                     cand = j["candidates"][0]
@@ -397,7 +400,9 @@ class Router:
                 if not text:
                     raise _Fail("empty", resp.status_code, detail="empty text")
             except _Fail as f:
-                errors.append(f"gemini/{model}:{f.kind}")
+                why = re.sub(r"\s+", " ", f.detail or "")[:160]
+                errors.append(f"gemini/{model}:{f.kind}:{f.status or '-'}" + (f" {why}" if why else ""))
+                log.warning("grounded search failed kind=%s status=%s detail=%s", f.kind, f.status, why)
                 self._on_failure(ks, model, f)
                 if f.kind in ("model", "bad_request"):
                     break

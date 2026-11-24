@@ -6,6 +6,7 @@ Nothing is stored on the relay. Private details are removed from the query befor
 """
 import html
 import json
+import logging
 import re
 import time
 import urllib.parse
@@ -15,6 +16,8 @@ import requests
 from memorykit import is_sensitive
 from prompting import LANG_RULE, language_ok, strip_emoji
 from router import AllBusy
+
+log = logging.getLogger("research")
 
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 PHONE = re.compile(r"(?<!\d)(?:\+?\d[\d \-]{8,}\d)(?!\d)")
@@ -117,16 +120,19 @@ def _real_url(href):
     return href
 
 
-def ddg_search(query, get=None, limit=5):
-    """Returns [{title,url,snippet}]. Empty list on any failure (caller degrades honestly)."""
+def ddg_search(query, get=None, limit=5, info=None):
+    """Returns [{title,url,snippet}]. Empty list on any failure; `info` (dict) gets the reason for diagnosis."""
     get = get or requests.get
+    info = info if info is not None else {}
     try:
         resp = get("https://html.duckduckgo.com/html/", params={"q": query},
-                   headers={"User-Agent": "Mozilla/5.0 (StarkFamilyRelay)"}, timeout=15)
+                   headers={"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36"}, timeout=15)
         if resp.status_code != 200:
+            info["why"] = f"ddg:http {resp.status_code}"
             return []
         page = resp.text
-    except requests.RequestException:
+    except requests.RequestException as e:
+        info["why"] = f"ddg:{type(e).__name__}"
         return []
     out = []
     for m in _RES.finditer(page):
@@ -137,7 +143,26 @@ def ddg_search(query, get=None, limit=5):
                     "url": url, "snippet": _clip(html.unescape(_TAG.sub("", m.group(3) or "")), 300)})
         if len(out) >= limit:
             break
+    if not out:
+        info["why"] = "ddg:no results parsed"
     return out
+
+
+def compound_sources(raw):
+    """URLs Groq Compound actually searched/read, from its executed_tools. Defensive: any shape problem -> []."""
+    out, seen = [], set()
+    try:
+        tools = raw["choices"][0]["message"].get("executed_tools") or []
+        for t in tools:
+            sr = (t.get("search_results") or {}).get("results") or []
+            for item in sr:
+                u = item.get("url")
+                if isinstance(u, str) and u.startswith("http") and u not in seen:
+                    seen.add(u)
+                    out.append({"title": _clip(item.get("title"), 120), "url": u})
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return []
+    return out[:6]
 
 
 def _parse_answer(text):
@@ -174,10 +199,27 @@ def run(router, persona, query, redact=None, proactive=False, ddg=None):
     except AllBusy as e:
         errors = e.errors[-3:]
 
-    if parsed is None:  # fallback: plain page search + normal LLM tier
-        hits = ddg_search(clean, ddg)
+    if parsed is None:  # path 2: Groq Compound (built-in web search, works with the Groq keys)
+        try:
+            budget_msgs = [{"role": "system", "content": summary_instructions(persona, clean)},
+                           {"role": "user", "content": "वेब पर खोजकर जवाब दो: " + clean}]
+            res = router.complete("search", budget_msgs, temperature=0.2, max_tokens=1000)
+            parsed = _parse_answer(res.text)
+            if parsed is not None:
+                sources = compound_sources(res.raw)
+                via = f"{res.provider}/{res.model} (web search)"
+                if not sources:  # no URL to show: do not let it claim high confidence
+                    parsed["confidence"] = min(parsed["confidence"], 0.5)
+        except AllBusy as e:
+            errors = errors + e.errors[-3:]
+
+    if parsed is None:  # path 3: plain page search + normal LLM tier
+        dinfo = {}
+        hits = ddg_search(clean, ddg, info=dinfo)
         if not hits:
-            return {"degraded": True, "retry_after_s": 30, "errors": errors + ["no_search_path"], "query_used": clean}
+            errors = errors + [dinfo.get("why", "ddg:failed")]
+            log.warning("research: no search path worked: %s", errors)
+            return {"degraded": True, "retry_after_s": 30, "errors": errors, "query_used": clean}
         sources = [{"title": h["title"], "url": h["url"]} for h in hits]
         snippets = "\n".join(f"- {h['title']}: {h['snippet']}" for h in hits)
         msgs = [{"role": "system", "content": summary_instructions(persona, clean)},

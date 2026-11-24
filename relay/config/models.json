@@ -63,6 +63,16 @@
         "provider": "openrouter",
         "model": "google/gemma-3-27b-it:free"
       }
+    ],
+    "search": [
+      {
+        "provider": "groq",
+        "model": "groq/compound-mini"
+      },
+      {
+        "provider": "groq",
+        "model": "groq/compound"
+      }
     ]
   },
   "characters": {

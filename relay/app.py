@@ -192,6 +192,14 @@ def create_app(router=None, personas=None, token=None):
         log.info("research char=%s degraded=%s conf=%s via=%s", cid, out.get("degraded"), out.get("confidence"), out.get("via"))
         return jsonify(**out)
 
+    @app.get("/research/diag")
+    def research_diag():
+        """Run one tiny search and show exactly which path failed and why (status codes, no keys)."""
+        if (r := guard()) is not None:
+            return r
+        out = researchmod.run(router, personas.get("jarvis") or next(iter(personas.values())), "capital of France")
+        return jsonify(**out)
+
     @app.post("/family/ask")
     def family_ask():
         """Ask-the-family protocol: memory -> best peer -> research (max 2 hops, call and time budget). Returns every step."""

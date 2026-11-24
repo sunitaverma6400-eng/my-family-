@@ -23,6 +23,7 @@ data class ResearchResult(
     val timeSensitive: Boolean,
     val sources: List<Source>,
     val reused: Boolean = false,
+    val errors: String = "",
 )
 
 /** One visible step of the ask-the-family protocol (nothing happens in a hidden channel). */
@@ -162,6 +163,7 @@ object Research {
             refused = j.optString("refused"), answer = j.optString("answer"), known = j.optString("known"),
             guessed = j.optString("guessed"), confidence = j.optDouble("confidence", 0.0),
             timeSensitive = j.optBoolean("time_sensitive", false), sources = sources(j.optJSONArray("sources")),
+            errors = j.optJSONArray("errors")?.let { a -> (0 until a.length()).map { a.optString(it) }.take(3).joinToString("; ") } ?: "",
         )
         ResearchNotes.save(ctx, query, r)
         return r
@@ -169,7 +171,7 @@ object Research {
 
     /** What the user sees: answer, what is sure vs guessed, sources, confidence. */
     fun format(r: ResearchResult): String {
-        if (r.degraded) return "अभी खोज नहीं हो पाई (सर्वर व्यस्त)। थोड़ी देर बाद फिर कहिए।"
+        if (r.degraded) return "अभी खोज नहीं हो पाई। थोड़ी देर बाद फिर कहिए।" + if (r.errors.isBlank()) "" else "\n[कारण: ${r.errors.take(200)}]"
         if (r.refused.isNotBlank()) return r.answer
         return buildString {
             append(r.answer)

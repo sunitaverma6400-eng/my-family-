@@ -120,7 +120,7 @@ class RouterTests(unittest.TestCase):
         r.clock.t += 1
         r.complete("fast", MSG)
         bad = [k for k in r.status()["providers"]["groq"]["keys"] if k["last_error"].startswith("auth")][0]
-        self.assertGreater(bad["cooling_for_s"], 3600)
+        self.assertGreater(bad["cooling_for_s"], 1500)  # 30 min: retried later, not locked out for hours
 
     def test_timeout_cools_key_and_continues(self):
         r, _ = make(lambda u, k, m: requests.Timeout() if k == "gk1111" else Resp())
