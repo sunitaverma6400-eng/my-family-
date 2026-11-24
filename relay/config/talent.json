@@ -1,0 +1,44 @@
+{
+  "_note": "Talent registry: which character is good at which domain (0-1). The phone keeps small adjustments (wins/losses) and sends them with each /family/ask; this file is the starting point. Keywords are matched against the question (Hindi, Hinglish, English).",
+  "domains": {
+    "planning":   {"keywords": ["plan", "schedule", "timetable", "योजना", "प्लान", "समय सारणी", "agenda", "organise", "organize"]},
+    "logistics":  {"keywords": ["route", "travel", "ticket", "train", "bus", "flight", "रास्ता", "सफ़र", "सफर", "यात्रा", "टिकट", "booking"]},
+    "general":    {"keywords": []},
+    "daily_life": {"keywords": ["recipe", "cook", "health tip", "morning", "night", "routine", "खाना", "रेसिपी", "सुबह", "रात", "दिनचर्या", "weather", "मौसम"]},
+    "news":       {"keywords": ["news", "latest", "headline", "खबर", "ख़बर", "समाचार", "ताज़ा", "ताजा", "score", "स्कोर", "match", "मैच"]},
+    "music":      {"keywords": ["song", "music", "singer", "album", "gaana", "गाना", "संगीत", "गायक", "movie", "film", "फ़िल्म", "फिल्म", "series", "web series"]},
+    "tech":       {"keywords": ["error", "bug", "code", "python", "kotlin", "android", "api", "server", "render", "github", "gradle", "crash", "log", "कोड", "एरर", "सर्वर", "ऐप", "टेक"]},
+    "devices":    {"keywords": ["phone", "battery", "storage", "wifi", "bluetooth", "camera", "mobile", "फ़ोन", "फोन", "बैटरी", "स्टोरेज", "वाईफाई", "कैमरा", "setting", "सेटिंग"]},
+    "security":   {"keywords": ["security", "virus", "malware", "hack", "permission", "privacy", "scam", "fraud", "सुरक्षा", "वायरस", "हैक", "अनुमति", "प्राइवेसी", "धोखा"]},
+    "learning":   {"keywords": ["learn", "explain", "concept", "theory", "history", "science", "सीख", "समझा", "समझाओ", "इतिहास", "विज्ञान", "सिद्धांत", "meaning", "मतलब", "अर्थ"]},
+    "study":      {"keywords": ["exam", "study", "syllabus", "notes", "padhai", "पढ़ाई", "परीक्षा", "सिलेबस", "रिवीजन", "revision", "question paper", "पाठ"]},
+    "reflection": {"keywords": ["feel", "stress", "sad", "meaning of life", "decision", "ethic", "right or wrong", "तनाव", "उदास", "ज़िंदगी", "जिंदगी", "सही या ग़लत", "नैतिक", "मन"]},
+    "analysis":   {"keywords": ["analy", "compare", "which is better", "pros and cons", "data", "statistics", "विश्लेषण", "तुलना", "कौन सा बेहतर", "फ़ायदे", "नुकसान", "आँकड़े"]},
+    "strategy":   {"keywords": ["strategy", "approach", "roadmap", "risk", "रणनीति", "तरीक़ा", "जोखिम"]},
+    "chores":     {"keywords": ["clean", "cache", "organise files", "sort", "declutter", "सफ़ाई", "सफाई", "कैश", "डिलीट"]},
+    "files":      {"keywords": ["file", "pdf", "download", "folder", "document", "फ़ाइल", "फाइल", "डाउनलोड", "फोल्डर"]},
+    "howto":      {"keywords": ["how to", "how do i", "steps to", "कैसे करें", "कैसे करूँ", "कैसे करूं", "तरीका बताओ"]},
+    "tips":       {"keywords": ["tip", "trick", "shortcut", "टिप", "ट्रिक", "आसान तरीका"]}
+  },
+  "characters": {
+    "jarvis": {"planning": 0.9, "logistics": 0.9, "general": 0.8, "strategy": 0.6},
+    "friday": {"daily_life": 0.9, "news": 0.85, "music": 0.9, "general": 0.55},
+    "edith":  {"tech": 0.95, "devices": 0.9, "security": 0.9, "general": 0.5},
+    "vision": {"learning": 0.9, "study": 0.95, "reflection": 0.95, "general": 0.65},
+    "ultron": {"analysis": 0.95, "strategy": 0.95, "tech": 0.8, "general": 0.7},
+    "dume":   {"chores": 0.85, "files": 0.85, "howto": 0.7},
+    "u":      {"chores": 0.8, "files": 0.8, "howto": 0.7},
+    "karen":  {"tips": 0.85, "howto": 0.75, "general": 0.4}
+  },
+  "research_domains": {
+    "jarvis": ["planning", "logistics", "general"],
+    "friday": ["daily_life", "news", "music"],
+    "edith": ["tech", "devices", "security"],
+    "vision": ["learning", "study", "reflection"],
+    "ultron": ["analysis", "tech", "strategy"],
+    "dume": ["howto", "chores", "files"],
+    "u": ["howto", "chores", "files"],
+    "karen": ["tips", "howto"]
+  },
+  "limits": {"max_hops": 2, "max_llm_calls": 6, "deadline_s": 50, "min_peer_score": 0.45}
+}

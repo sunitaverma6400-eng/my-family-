@@ -74,5 +74,9 @@
     "dume": "fast",
     "u": "fast",
     "karen": "fast"
+  },
+  "research": {
+    "model": "gemini-3-flash-preview",
+    "timeout_s": 40
   }
 }

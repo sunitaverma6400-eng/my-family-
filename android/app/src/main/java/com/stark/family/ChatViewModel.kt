@@ -73,6 +73,33 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (draft == null) list.add(Msg(Kind.NOTE, "✗ $msg")) else ruleDraft = draft
     }
 
+    /** Research Engine from the chat: visible progress, answer with sources/confidence, saved as a research note. */
+    private suspend fun runResearch(query: String, who: String, list: SnapshotStateList<Msg>) {
+        val app = getApplication<Application>()
+        list.add(Msg(Kind.NOTE, "🔎 ${Characters.byId(who).name} खोज रहा है: $query"))
+        try {
+            val r = Research.search(app, who, query)
+            list.add(Msg(Kind.AI, Research.format(r), "खोज"))
+        } catch (e: RelayClient.RelayException) {
+            list.add(Msg(Kind.NOTE, "✗ " + (e.message ?: "खोज नहीं हो पाई")))
+        }
+    }
+
+    /** Ask-the-family: every hop is shown as a line, then the asker's final (honest) answer. */
+    private suspend fun runFamily(question: String, asker: String, list: SnapshotStateList<Msg>, mem: List<String>) {
+        val app = getApplication<Application>()
+        list.add(Msg(Kind.NOTE, "👥 ${Characters.byId(asker).name} परिवार से पूछ रहा है: $question"))
+        try {
+            val r = Family.ask(app, asker, question, mem)
+            Family.lines(r).forEach { list.add(Msg(Kind.NOTE, it)) }
+            val src = if (r.sources.isEmpty()) "" else "\nस्रोत: " + r.sources.take(3).joinToString("; ") { it.title.ifBlank { it.url } + " (" + it.url + ")" }
+            val gap = if (r.honestGap) "\n(पक्का जवाब नहीं मिला)" else ""
+            list.add(Msg(Kind.AI, r.speech + src + gap, "परिवार · ${r.hops} पड़ाव"))
+        } catch (e: RelayClient.RelayException) {
+            list.add(Msg(Kind.NOTE, "✗ " + (e.message ?: "परिवार से पूछना नहीं हो पाया")))
+        }
+    }
+
     init {
         KillSwitch.on(app)
         viewModelScope.launch { repo.maintain(relayUrl, token) }
@@ -135,6 +162,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             }
                             if (c.name == "propose_rule") {
                                 proposeRule(c.args.optString("teaching"), ch.id, list)
+                                continue
+                            }
+                            if (c.name == "research") {
+                                runResearch(c.args.optString("query"), ch.id, list)
+                                continue
+                            }
+                            if (c.name == "ask_family") {
+                                runFamily(c.args.optString("question"), ch.id, list, mem)
                                 continue
                             }
                             val res = Tools.plan(getApplication<Application>(), c, ch.id).run()

@@ -1,135 +1,161 @@
 {
-  "_note": "Source of truth for phone tools: schema text shown to the model, risk, and which character may use which tool. The app re-checks risk in its own code.",
-  "tools": {
-    "set_alarm": {
-      "risk": "low",
-      "desc": "किसी समय का अलार्म लगाना",
-      "args": "{\"hour\": 0-23, \"minute\": 0-59, \"label\": \"छोटा नाम (वैकल्पिक)\"}"
-    },
-    "set_timer": {
-      "risk": "low",
-      "desc": "कुछ देर का टाइमर लगाना",
-      "args": "{\"seconds\": 1-86400, \"label\": \"वैकल्पिक\"}"
-    },
-    "set_reminder": {
-      "risk": "low",
-      "desc": "किसी समय पर किसी बात की याद दिलाना",
-      "args": "{\"hour\": 0-23, \"minute\": 0-59, \"text\": \"क्या याद दिलाना है\"}"
-    },
-    "open_app": {
-      "risk": "low",
-      "desc": "फ़ोन का कोई ऐप खोलना",
-      "args": "{\"app\": \"ऐप का नाम, जैसे YouTube\"}"
-    },
-    "torch": {
-      "risk": "low",
-      "desc": "टॉर्च चालू या बंद करना",
-      "args": "{\"on\": true या false}"
-    },
-    "call_contact": {
-      "risk": "high",
-      "desc": "किसी संपर्क को कॉल करना (हर बार उपयोगकर्ता से पूछकर)",
-      "args": "{\"contact\": \"संपर्क का नाम या नंबर\"}"
-    },
-    "remember_fact": {
-      "risk": "low",
-      "desc": "उपयोगकर्ता के बारे में कोई स्थायी बात याददाश्त में सहेजना",
-      "args": "{\"fact\": \"एक वाक्य में बात\", \"importance\": 1-5}"
-    },
-    "screen_task": {
-      "risk": "low",
-      "desc": "फ़ोन की स्क्रीन पर ख़ुद ऐप खोलकर, स्क्रॉल/टैप करके कुछ देखना, खोजना या जाँचना और रिपोर्ट देना (कुछ बदलने से पहले उपयोगकर्ता से हमेशा पूछा जाता है)",
-      "args": "{\"goal\": \"पूरा काम एक-दो वाक्य में\"}"
-    },
-    "set_dnd": {
-      "risk": "low",
-      "desc": "Do Not Disturb (ख़लल मत डालो) चालू या बंद करना",
-      "args": "{\"on\": true या false}"
-    },
-    "set_volume": {
-      "risk": "low",
-      "desc": "आवाज़ का स्तर तय करना",
-      "args": "{\"stream\": \"media|ring|alarm|notification\", \"percent\": 0-100}"
-    },
-    "wifi_panel": {
-      "risk": "low",
-      "desc": "Wi-Fi/इंटरनेट का पैनल खोलना (Android अपने-आप Wi-Fi चालू नहीं करने देता; स्विच उपयोगकर्ता दबाता है)",
-      "args": "{}"
-    },
-    "propose_rule": {
-      "risk": "low",
-      "desc": "उपयोगकर्ता ने कोई नियम सिखाया ('जब X हो तब Y करो') तो उसे नियम-प्रस्ताव में बदलवाना; नियम तभी बनता है जब उपयोगकर्ता मंज़ूर करे",
-      "args": "{\"teaching\": \"उपयोगकर्ता के अपने शब्द, ज्यों के त्यों\"}"
-    },
-    "battery_saver": {
-      "risk": "low",
-      "desc": "बैटरी सेवर की सेटिंग खोलना (चालू करने का स्विच उपयोगकर्ता दबाता है)",
-      "args": "{}"
-    }
+ "_note": "Source of truth for phone tools: schema text shown to the model, risk, and which character may use which tool. The app re-checks risk in its own code.",
+ "tools": {
+  "set_alarm": {
+   "risk": "low",
+   "desc": "किसी समय का अलार्म लगाना",
+   "args": "{\"hour\": 0-23, \"minute\": 0-59, \"label\": \"छोटा नाम (वैकल्पिक)\"}"
   },
-  "permissions": {
-    "jarvis": [
-      "set_alarm",
-      "set_timer",
-      "set_reminder",
-      "open_app",
-      "torch",
-      "call_contact",
-      "remember_fact",
-      "screen_task",
-      "set_dnd",
-      "set_volume",
-      "wifi_panel",
-      "propose_rule",
-      "battery_saver"
-    ],
-    "friday": [
-      "set_alarm",
-      "set_timer",
-      "set_reminder",
-      "open_app",
-      "remember_fact",
-      "screen_task",
-      "set_dnd",
-      "set_volume",
-      "wifi_panel",
-      "propose_rule",
-      "battery_saver"
-    ],
-    "edith": [
-      "torch",
-      "open_app",
-      "remember_fact",
-      "screen_task",
-      "propose_rule",
-      "battery_saver"
-    ],
-    "dume": [
-      "torch",
-      "open_app",
-      "remember_fact",
-      "screen_task",
-      "propose_rule"
-    ],
-    "u": [
-      "torch",
-      "open_app",
-      "remember_fact",
-      "screen_task",
-      "propose_rule"
-    ],
-    "vision": [
-      "remember_fact",
-      "propose_rule"
-    ],
-    "ultron": [
-      "remember_fact",
-      "screen_task",
-      "propose_rule"
-    ],
-    "karen": [
-      "remember_fact",
-      "propose_rule"
-    ]
+  "set_timer": {
+   "risk": "low",
+   "desc": "कुछ देर का टाइमर लगाना",
+   "args": "{\"seconds\": 1-86400, \"label\": \"वैकल्पिक\"}"
+  },
+  "set_reminder": {
+   "risk": "low",
+   "desc": "किसी समय पर किसी बात की याद दिलाना",
+   "args": "{\"hour\": 0-23, \"minute\": 0-59, \"text\": \"क्या याद दिलाना है\"}"
+  },
+  "open_app": {
+   "risk": "low",
+   "desc": "फ़ोन का कोई ऐप खोलना",
+   "args": "{\"app\": \"ऐप का नाम, जैसे YouTube\"}"
+  },
+  "torch": {
+   "risk": "low",
+   "desc": "टॉर्च चालू या बंद करना",
+   "args": "{\"on\": true या false}"
+  },
+  "call_contact": {
+   "risk": "high",
+   "desc": "किसी संपर्क को कॉल करना (हर बार उपयोगकर्ता से पूछकर)",
+   "args": "{\"contact\": \"संपर्क का नाम या नंबर\"}"
+  },
+  "remember_fact": {
+   "risk": "low",
+   "desc": "उपयोगकर्ता के बारे में कोई स्थायी बात याददाश्त में सहेजना",
+   "args": "{\"fact\": \"एक वाक्य में बात\", \"importance\": 1-5}"
+  },
+  "screen_task": {
+   "risk": "low",
+   "desc": "फ़ोन की स्क्रीन पर ख़ुद ऐप खोलकर, स्क्रॉल/टैप करके कुछ देखना, खोजना या जाँचना और रिपोर्ट देना (कुछ बदलने से पहले उपयोगकर्ता से हमेशा पूछा जाता है)",
+   "args": "{\"goal\": \"पूरा काम एक-दो वाक्य में\"}"
+  },
+  "set_dnd": {
+   "risk": "low",
+   "desc": "Do Not Disturb (ख़लल मत डालो) चालू या बंद करना",
+   "args": "{\"on\": true या false}"
+  },
+  "set_volume": {
+   "risk": "low",
+   "desc": "आवाज़ का स्तर तय करना",
+   "args": "{\"stream\": \"media|ring|alarm|notification\", \"percent\": 0-100}"
+  },
+  "wifi_panel": {
+   "risk": "low",
+   "desc": "Wi-Fi/इंटरनेट का पैनल खोलना (Android अपने-आप Wi-Fi चालू नहीं करने देता; स्विच उपयोगकर्ता दबाता है)",
+   "args": "{}"
+  },
+  "propose_rule": {
+   "risk": "low",
+   "desc": "उपयोगकर्ता ने कोई नियम सिखाया ('जब X हो तब Y करो') तो उसे नियम-प्रस्ताव में बदलवाना; नियम तभी बनता है जब उपयोगकर्ता मंज़ूर करे",
+   "args": "{\"teaching\": \"उपयोगकर्ता के अपने शब्द, ज्यों के त्यों\"}"
+  },
+  "battery_saver": {
+   "risk": "low",
+   "desc": "बैटरी सेवर की सेटिंग खोलना (चालू करने का स्विच उपयोगकर्ता दबाता है)",
+   "args": "{}"
+  },
+  "research": {
+   "risk": "low",
+   "desc": "इंटरनेट पर खोजकर, स्रोत और भरोसे के साथ जानकारी लाना (ताज़ा ख़बर, दाम, तथ्य, जो तुम्हें पक्का पता नहीं)",
+   "args": "{\"query\": \"क्या खोजना है, एक साफ़ वाक्य (निजी जानकारी बिना)\"}"
+  },
+  "ask_family": {
+   "risk": "low",
+   "desc": "किसी बात पर परिवार के दूसरे किरदार से पूछना (जिसका वह जानकार हो); ज़रूरत पड़े तो वे इंटरनेट भी खोजते हैं",
+   "args": "{\"question\": \"सवाल एक-दो वाक्य में\"}"
   }
+ },
+ "permissions": {
+  "jarvis": [
+   "set_alarm",
+   "set_timer",
+   "set_reminder",
+   "open_app",
+   "torch",
+   "call_contact",
+   "remember_fact",
+   "screen_task",
+   "set_dnd",
+   "set_volume",
+   "wifi_panel",
+   "propose_rule",
+   "battery_saver",
+   "research",
+   "ask_family"
+  ],
+  "friday": [
+   "set_alarm",
+   "set_timer",
+   "set_reminder",
+   "open_app",
+   "remember_fact",
+   "screen_task",
+   "set_dnd",
+   "set_volume",
+   "wifi_panel",
+   "propose_rule",
+   "battery_saver",
+   "research",
+   "ask_family"
+  ],
+  "edith": [
+   "torch",
+   "open_app",
+   "remember_fact",
+   "screen_task",
+   "propose_rule",
+   "battery_saver",
+   "research",
+   "ask_family"
+  ],
+  "dume": [
+   "torch",
+   "open_app",
+   "remember_fact",
+   "screen_task",
+   "propose_rule",
+   "research",
+   "ask_family"
+  ],
+  "u": [
+   "torch",
+   "open_app",
+   "remember_fact",
+   "screen_task",
+   "propose_rule",
+   "research",
+   "ask_family"
+  ],
+  "vision": [
+   "remember_fact",
+   "propose_rule",
+   "research",
+   "ask_family"
+  ],
+  "ultron": [
+   "remember_fact",
+   "screen_task",
+   "propose_rule",
+   "research",
+   "ask_family"
+  ],
+  "karen": [
+   "remember_fact",
+   "propose_rule",
+   "research",
+   "ask_family"
+  ]
+ }
 }

@@ -127,6 +127,7 @@ abstract class MemoryDb : RoomDatabase() {
  * ladder through the relay, edit, delete, back up. Everything lives on the phone.
  */
 class MemoryRepo private constructor(app: Context) {
+    private val appCtx: Context = app.applicationContext
     private val db = MemoryDb.get(app)
     val dao: MemoryDao = db.dao()
     private val client = RelayClient()
@@ -221,6 +222,8 @@ class MemoryRepo private constructor(app: Context) {
         (matched + important).forEach { out.add((if (it.kind == "habit") "आदत: " else "तथ्य: ") + it.text) }
         dao.summaries("daily").take(2).forEach { out.add("सार (${it.period}): " + it.text.take(300)) }
         dao.notes().filter { it.character == character }.take(3).forEach { out.add("तुम्हारी अपनी टिप्पणी: " + it.text) }
+        // earlier research (shared by the whole family); stale time-sensitive ones are skipped until re-checked
+        try { out.addAll(ResearchNotes.relevant(appCtx, userText)) } catch (_: Exception) { }
         if (q.isNotEmpty()) {
             val today = dayKey(nowMs)
             dao.episodesSince(nowMs - 45L * 86_400_000L).filter { it.day != today }

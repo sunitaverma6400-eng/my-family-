@@ -321,6 +321,42 @@ class OverlayService : Service() {
         }
     }
 
+    /** Research Engine from the bubble: progress line, then answer + sources + confidence; also saved as a research note. */
+    private suspend fun runResearch(query: String, who: String) {
+        collapseJob?.cancel()
+        results.add("🔎 खोज रहा हूँ: $query")
+        val idx = results.size - 1
+        try {
+            val r = Research.search(applicationContext, who, query)
+            said = Research.format(r)
+            results[idx] = if (r.degraded) "✗ खोज नहीं हो पाई" else "✓ खोज पूरी (भरोसा ${(r.confidence * 100).toInt()}%)"
+            repo.addEpisode(who, "[खोज] $query", r.answer.take(300), "research")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: RelayClient.RelayException) {
+            results[idx] = "✗ " + (e.message ?: "खोज नहीं हो पाई")
+        }
+    }
+
+    /** Ask-the-family from the bubble: each hop is listed (no hidden channel), the asker speaks the final answer. */
+    private suspend fun runFamily(question: String, who: String) {
+        collapseJob?.cancel()
+        results.add("👥 परिवार से पूछ रहा हूँ: $question")
+        val idx = results.size - 1
+        try {
+            val mem = repo.relevant(question, who)
+            val r = Family.ask(applicationContext, who, question, mem)
+            Family.lines(r).forEach { results.add(it) }
+            said = r.speech + if (r.sources.isEmpty()) "" else "\nस्रोत: " + r.sources.take(2).joinToString("; ") { it.title.ifBlank { it.url } }
+            results[idx] = if (r.honestGap) "✗ पक्का जवाब नहीं मिला" else "✓ परिवार से जवाब मिला (${r.hops} पड़ाव)"
+            repo.addEpisode(who, "[परिवार से पूछा] $question", r.speech.take(300), "ask_family")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: RelayClient.RelayException) {
+            results[idx] = "✗ " + (e.message ?: "परिवार से पूछना नहीं हो पाया")
+        }
+    }
+
     private suspend fun runTools(calls: List<ToolCall>, who: String) {
         if (KillSwitch.on(applicationContext)) {
             if (calls.isNotEmpty()) results.add("⛔ kill switch चालू है: कोई क्रिया नहीं होगी।")
@@ -333,6 +369,14 @@ class OverlayService : Service() {
             }
             if (c.name == "propose_rule") {
                 proposeRule(c.args.optString("teaching"), who)
+                continue
+            }
+            if (c.name == "research") {
+                runResearch(c.args.optString("query"), who)
+                continue
+            }
+            if (c.name == "ask_family") {
+                runFamily(c.args.optString("question"), who)
                 continue
             }
             val plan = withContext(Dispatchers.IO) { Tools.plan(applicationContext, c, who) }

@@ -116,6 +116,24 @@ class RelayClient {
         return RuleResp(j.optBoolean("understood", false), j.optJSONObject("rule"), j.optString("question"))
     }
 
+    /** Research Engine: web search + Hindi summary with sources and confidence. Never throws for "busy": check degraded. */
+    suspend fun research(
+        base: String, token: String, character: String, query: String, redact: JSONArray, proactive: Boolean,
+    ): JSONObject {
+        val body = JSONObject().put("character", character).put("query", query).put("redact", redact).put("proactive", proactive)
+        return request(base, "/research", token, body.toString()) { }
+    }
+
+    /** Ask-the-family protocol (memory -> best peer -> research; the relay enforces max 2 hops and a budget). */
+    suspend fun familyAsk(
+        base: String, token: String, asker: String, question: String, memory: List<String>,
+        registry: JSONObject, redact: JSONArray,
+    ): JSONObject {
+        val body = JSONObject().put("asker", asker).put("question", question).put("memory", JSONArray(memory))
+            .put("registry", registry).put("redact", redact)
+        return request(base, "/family/ask", token, body.toString()) { }
+    }
+
     /** Memory ladder helper. Returns null when the relay is busy (try again later). */
     suspend fun summarize(base: String, token: String, kind: String, items: JSONArray, profilePrev: String? = null): JSONObject? {
         val body = JSONObject().put("kind", kind).put("items", items)

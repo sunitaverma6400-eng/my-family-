@@ -15,6 +15,8 @@ from prompting import (build_messages, clean_history, language_ok, load_personas
 import requests
 
 import agent as agentmod
+import family as familymod
+import research as researchmod
 import rules as rulesmod
 import memorykit
 import tools as toolmod
@@ -172,6 +174,45 @@ def create_app(router=None, personas=None, token=None):
         if "rule" in out:
             return jsonify(degraded=False, understood=True, rule=out["rule"], provider=res.provider, model=res.model)
         return jsonify(degraded=False, understood=False, question=out["question"])
+
+    @app.post("/research")
+    def research_ep():
+        """Research Engine: privacy-scrubbed web search -> Hindi answer with sources, date, confidence. Stores nothing."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        cid = str(data.get("character") or "jarvis").lower()
+        persona = personas.get(cid)
+        if persona is None:
+            return jsonify(error="unknown_character"), 404
+        if not str(data.get("query") or "").strip():
+            return jsonify(error="bad_request"), 400
+        out = researchmod.run(router, persona, data["query"], data.get("redact") if isinstance(data.get("redact"), list) else [],
+                              proactive=bool(data.get("proactive")))
+        log.info("research char=%s degraded=%s conf=%s via=%s", cid, out.get("degraded"), out.get("confidence"), out.get("via"))
+        return jsonify(**out)
+
+    @app.post("/family/ask")
+    def family_ask():
+        """Ask-the-family protocol: memory -> best peer -> research (max 2 hops, call and time budget). Returns every step."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        asker = str(data.get("asker") or "").lower()
+        if asker not in personas:
+            return jsonify(error="unknown_character", known=list(personas)), 404
+        if not str(data.get("question") or "").strip():
+            return jsonify(error="bad_request"), 400
+        out = familymod.run(router, personas, {**data, "asker": asker})
+        log.info("family ask asker=%s hops=%s calls=%s used=%s degraded=%s", asker, out["hops"], out["llm_calls"],
+                 out["final"]["used"], out["degraded"])
+        return jsonify(**out)
+
+    @app.get("/talent")
+    def talent():
+        if (r := guard()) is not None:
+            return r
+        return jsonify(familymod.TALENT["characters"])
 
     @app.get("/characters")
     def characters():

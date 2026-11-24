@@ -85,4 +85,15 @@ class Prefs(ctx: Context) {
     var mutedTypes: Set<String>
         get() = HashSet(sp.getStringSet("muted_types", emptySet()) ?: emptySet())
         set(v) { sp.edit().putStringSet("muted_types", HashSet(v)).apply() }
+
+    // ---- research / family (M10) ----
+    /** JSON {character: {domain: delta}} learned from who answered well; sent with every family question. */
+    var talentAdj: String
+        get() = sp.getString("talent_adj", "{}") ?: "{}"
+        set(v) { sp.edit().putString("talent_adj", v).apply() }
+
+    /** Extra words (comma separated) that must never appear in a web search, e.g. your name. */
+    var redactTerms: String
+        get() = sp.getString("redact_terms", "") ?: ""
+        set(v) { sp.edit().putString("redact_terms", v.take(300)).apply() }
 }

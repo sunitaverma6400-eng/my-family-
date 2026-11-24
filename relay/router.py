@@ -356,6 +356,65 @@ class Router:
                 break
         raise AllBusy(self._soonest_retry(), errors)
 
+    # ---------- grounded web search (Gemini native API with Google Search tool) ----------
+    def search_grounded(self, prompt, max_tokens=1200):
+        """One web-grounded answer. Returns (text, sources[{title,url}], provider, model). Raises AllBusy.
+
+        Uses the same key pool, cooldowns and circuit breaker as normal calls. Only Gemini offers grounding here;
+        callers fall back to a plain page search when this raises AllBusy.
+        """
+        rc = self.cfg.get("research", {})
+        model = rc.get("model", "gemini-3-flash-preview")
+        timeout = rc.get("timeout_s", 40)
+        errors = []
+        if not self._provider_ready("gemini", model):
+            raise AllBusy(self._soonest_retry(), ["gemini:not_ready"])
+        for _ in range(self.cfg["request"]["max_attempts_per_provider"]):
+            ks = self._pick_key("gemini")
+            if ks is None:
+                break
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                    "tools": [{"google_search": {}}],
+                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": max_tokens}}
+            try:
+                try:
+                    resp = self.transport(url, headers={"x-goog-api-key": ks.key, "Content-Type": "application/json"},
+                                          json=body, timeout=timeout)
+                except requests.Timeout:
+                    raise _Fail("timeout", detail="timeout")
+                except requests.RequestException as e:
+                    raise _Fail("timeout", detail=type(e).__name__)
+                if resp.status_code != 200:
+                    kind, ra = _classify(resp.status_code, resp.headers, (getattr(resp, "text", "") or "")[:300])
+                    raise _Fail(kind, resp.status_code, ra)
+                try:
+                    j = resp.json()
+                    cand = j["candidates"][0]
+                    text = "".join(p.get("text", "") for p in cand["content"]["parts"]).strip()
+                except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+                    raise _Fail("empty", resp.status_code, detail="bad response shape")
+                if not text:
+                    raise _Fail("empty", resp.status_code, detail="empty text")
+            except _Fail as f:
+                errors.append(f"gemini/{model}:{f.kind}")
+                self._on_failure(ks, model, f)
+                if f.kind in ("model", "bad_request"):
+                    break
+                if not self._provider_ready("gemini", model):
+                    break
+                continue
+            self._on_success(ks)
+            sources, seen = [], set()
+            for ch in (cand.get("groundingMetadata", {}) or {}).get("groundingChunks", []) or []:
+                web = ch.get("web") or {}
+                u = web.get("uri")
+                if u and u not in seen:
+                    seen.add(u)
+                    sources.append({"title": str(web.get("title") or "")[:120], "url": u})
+            return _clean(text), sources[:6], "gemini", model
+        raise AllBusy(self._soonest_retry(), errors)
+
     # ---------- Brain Status ----------
     def status(self, characters=()):
         now = self.now()

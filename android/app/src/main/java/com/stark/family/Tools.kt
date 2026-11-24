@@ -37,12 +37,12 @@ object Tools {
         "set_alarm" to Risk.LOW, "set_timer" to Risk.LOW, "set_reminder" to Risk.LOW,
         "open_app" to Risk.LOW, "torch" to Risk.LOW, "call_contact" to Risk.HIGH, "remember_fact" to Risk.LOW,
         "screen_task" to Risk.LOW, "set_dnd" to Risk.LOW, "set_volume" to Risk.LOW, "wifi_panel" to Risk.LOW, "battery_saver" to Risk.LOW,
-        "propose_rule" to Risk.LOW,
+        "propose_rule" to Risk.LOW, "research" to Risk.LOW, "ask_family" to Risk.LOW,
     )
     val NAMES: List<String> = RISK.keys.toList()
 
     /** In the main chat screen only memory tools run; phone actions (alarm, call, torch…) come from the bubble. */
-    val MEMORY_NAMES: List<String> = listOf("remember_fact", "propose_rule")
+    val MEMORY_NAMES: List<String> = listOf("remember_fact", "propose_rule", "research", "ask_family")
 
     fun needsConfirm(c: ToolCall): Boolean = (RISK[c.name] ?: Risk.HIGH) != Risk.LOW || c.confirm
 
@@ -169,6 +169,7 @@ object Tools {
             }
             "propose_rule" -> fail("नियम सिखाना सिर्फ़ चैट से होता है (मंज़ूरी के साथ)।")
             "screen_task" -> fail("स्क्रीन-काम सिर्फ़ बबल से चलता है।")
+            "research", "ask_family" -> fail("खोज और परिवार से पूछना चैट/बबल से चलते हैं।")
             "call_contact" -> planCall(ctx, c.args.getString("contact"))
             else -> fail("यह औज़ार मेरे पास नहीं है: ${c.name}")
         }
