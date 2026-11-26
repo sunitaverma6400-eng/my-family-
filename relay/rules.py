@@ -11,8 +11,9 @@ from memorykit import is_sensitive
 
 TRIGGERS = {"time", "enter_home", "exit_home", "app_open", "battery_below"}
 RULE_TOOLS = ["set_alarm", "set_timer", "set_reminder", "open_app", "torch", "set_dnd", "set_volume",
-              "wifi_panel", "battery_saver", "say", "remember_fact", "call_contact"]
-HIGH = {"call_contact"}
+              "wifi_panel", "battery_saver", "say", "remember_fact", "call_contact", "send_sms", "send_whatsapp",
+              "media_control", "bluetooth_panel"]
+HIGH = {"call_contact", "send_sms", "send_whatsapp"}
 HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 

@@ -83,7 +83,9 @@ class MainActivity : ComponentActivity() {
         if (need.isNotEmpty()) permLauncher.launch(need.toTypedArray())
         setContent {
             StarkTheme(vm.character) {
-                if (vm.showMemory) MemoryScreen(vm.character) { vm.showMemory = false }
+                if (vm.showSetup) SetupScreen(vm.character) { vm.showSetup = false }
+                else if (vm.showAssist) AssistSettingsScreen(vm.character) { vm.showAssist = false }
+                else if (vm.showMemory) MemoryScreen(vm.character) { vm.showMemory = false }
                 else if (vm.showActivity) ActivityScreen(vm.character) { vm.showActivity = false }
                 else if (vm.showSkills) SkillsScreen(vm.character) { vm.showSkills = false }
                 else if (vm.showRules) RulesScreen(vm.character) { vm.showRules = false }
@@ -103,6 +105,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleBubble() {
         if (OverlayService.running) {
+            Prefs(this).bubbleWanted = false
             startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_STOP))
             return
         }
@@ -115,6 +118,7 @@ class MainActivity : ComponentActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             return
         }
+        Prefs(this).bubbleWanted = true
         ContextCompat.startForegroundService(this, Intent(this, OverlayService::class.java))
         Toast.makeText(this, "बबल चालू। अब किसी भी ऐप पर जाइए।", Toast.LENGTH_SHORT).show()
     }
@@ -297,6 +301,9 @@ fun SettingsDialog(vm: ChatViewModel) {
                     label = { Text("APP_TOKEN") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                 )
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { vm.showSettings = false; vm.showSetup = true }) { Text("🛡 अनुमतियाँ और फ़ोन की गाइड") }
+                TextButton(onClick = { vm.showSettings = false; vm.showAssist = true }) { Text("🎛 परिवार की सेटिंग (Ultron, खोज)") }
             }
         },
         confirmButton = { TextButton(onClick = { vm.saveSettings(url, tok) }) { Text("सेव") } },

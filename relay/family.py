@@ -109,7 +109,7 @@ def _obj(text):
 def _ask_json(router, budget, persona, memory, instruction, tier="fast", max_tokens=500):
     budget.spend()
     msgs = [{"role": "system", "content": _brief(persona, memory)}, {"role": "user", "content": instruction}]
-    res = router.complete(tier, msgs, temperature=0.3, max_tokens=max_tokens)
+    res = router.complete(tier, msgs, temperature=0.3, max_tokens=max_tokens, priority=2)
     return _obj(res.text), res
 
 
@@ -123,7 +123,8 @@ def run(router, personas, data, ddg=None, clock=time.time):
     allow_research = data.get("allow_research", True) is not False
     redact = data.get("redact") if isinstance(data.get("redact"), list) else []
     ap = personas[asker]
-    budget = Budget(lim["max_llm_calls"], lim["deadline_s"], clock)
+    review = bool(data.get("ultron_review")) and asker != "ultron" and "ultron" in personas
+    budget = Budget(lim["max_llm_calls"] + (1 if review else 0), lim["deadline_s"], clock)
     steps, updates, used, hops = [], [], [], 0
     gathered = []            # [{who, text, kind}]
     research_note = None
@@ -247,7 +248,7 @@ def run(router, personas, data, ddg=None, clock=time.time):
                      f"{' (सर्वर व्यस्त था)' if degraded else ''}।\nईमानदारी से 2 से 3 वाक्य में बताओ: क्या-क्या आज़माया, क्या नहीं मिला, और "
                      "आगे क्या हो सकता है (जैसे बाद में दोबारा खोजना)। झूठ मत गढ़ो। सिर्फ़ जवाब का पाठ लिखो।")
         res = router.complete("fast", [{"role": "system", "content": _brief(ap, memory)}, {"role": "user", "content": instr}],
-                              temperature=0.4, max_tokens=500)
+                              temperature=0.4, max_tokens=500, priority=2)
         final_text = strip_emoji(res.text) or res.text
         if not language_ok(final_text):
             final_text = strip_emoji(gathered[0]["text"]) if gathered else None
@@ -259,12 +260,42 @@ def run(router, personas, data, ddg=None, clock=time.time):
             final_text = f"{name(g['who'])} के मुताबिक़: {g['text']}"
         else:
             final_text = "मैंने परिवार से और इंटरनेट पर देखने की कोशिश की, पर अभी पक्का जवाब नहीं मिला। थोड़ी देर बाद फिर पूछिए।"
-    return _finish(asker, final_text, final_sources, final_conf, used, steps, hops, budget, updates, research_note, degraded, personas, gap=not gathered)
+    review_text = None
+    if review and gathered:  # optional: Ultron checks the answer for flaws before it is presented
+        try:
+            budget.spend()
+            res = router.complete("fast", [{"role": "system", "content": _brief(personas["ultron"], None)},
+                                           {"role": "user", "content": f"सवाल: \"{question}\"\nपेश किया जाने वाला जवाब (डेटा): {final_text}\n"
+                                            "इसमें कोई कमी, जोखिम या धोखा हो तो एक-दो वाक्य में अपने तीखे अंदाज़ में बताओ; सब ठीक हो तो साफ़ कहो कि ठीक है। सिर्फ़ पाठ।"}],
+                                  temperature=0.4, max_tokens=250, priority=2)
+            review_text = strip_emoji(res.text) or res.text
+            steps.append({"kind": "review", "who": "ultron", "to": asker, "text": review_text, "known": True})
+        except AllBusy:
+            pass
+    return _finish(asker, final_text, final_sources, final_conf, used, steps, hops, budget, updates, research_note, degraded, personas,
+                   gap=not gathered, tried=peers_asked, question=question, review=review_text)
 
 
-def _finish(asker, text, sources, conf, used, steps, hops, budget, updates, note, degraded, personas, gap=False):
+def _report(personas, asker, question, steps, used, text, gap, tried, degraded):
+    """Self-solving report (no extra LLM call): problem / what was done / result / what is left / options."""
+    did = []
+    for s in steps:
+        if s["kind"] == "ask_peer":
+            did.append(f"{personas[s['to']]['name']} से पूछा")
+        elif s["kind"] == "research":
+            did.append("इंटरनेट पर खोजा")
+    if not did:
+        did.append("अपनी याददाश्त देखी")
+    options = ["दोबारा खोजें", "किसी और किरदार से पूछें"] if gap else ["और विस्तार से बताओ", "इसे नोट कर लो"]
+    left = ("पक्का जवाब अभी नहीं मिला" + (" (सर्वर व्यस्त था)" if degraded else "")) if gap else "कुछ नहीं, जवाब मिल गया"
+    return {"problem": question, "did": did, "result": text, "left": left, "options": options}
+
+
+def _finish(asker, text, sources, conf, used, steps, hops, budget, updates, note, degraded, personas, gap=False,
+            tried=(), question="", review=None):
     steps = steps + [{"kind": "final", "who": asker, "to": "user", "text": text, "known": not gap}]
     return {
+        "report": _report(personas, asker, question, steps, used, text, gap, tried, degraded),
         "degraded": bool(degraded and gap),
         "retry_after_s": 30 if (degraded and gap) else 0,
         "final": {"speech": text, "who": asker, "sources": sources, "confidence": round(conf, 2), "used": used, "honest_gap": gap},

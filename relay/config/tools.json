@@ -75,6 +75,126 @@
    "risk": "low",
    "desc": "किसी बात पर परिवार के दूसरे किरदार से पूछना (जिसका वह जानकार हो); ज़रूरत पड़े तो वे इंटरनेट भी खोजते हैं",
    "args": "{\"question\": \"सवाल एक-दो वाक्य में\"}"
+  },
+  "add_calendar_event": {
+   "risk": "low",
+   "desc": "कैलेंडर में घटना जोड़ना (कैलेंडर भरा हुआ खुलता है; सेव आप दबाएँगे)",
+   "args": "{\"title\": \"नाम\", \"date\": \"YYYY-MM-DD\", \"hour\": 0-23, \"minute\": 0-59, \"duration_min\": मिनट}"
+  },
+  "set_brightness": {
+   "risk": "low",
+   "desc": "स्क्रीन की चमक बदलना",
+   "args": "{\"percent\": 0-100}"
+  },
+  "bluetooth_panel": {
+   "risk": "low",
+   "desc": "Bluetooth की सेटिंग खोलना (स्विच उपयोगकर्ता दबाएगा)",
+   "args": "{}"
+  },
+  "device_info": {
+   "risk": "low",
+   "desc": "फ़ोन की जानकारी बताना: बैटरी, स्टोरेज, नेटवर्क",
+   "args": "{\"what\": \"battery|storage|network|all\"}"
+  },
+  "copy_text": {
+   "risk": "low",
+   "desc": "कोई पाठ क्लिपबोर्ड में कॉपी करना",
+   "args": "{\"text\": \"जो कॉपी करना है\"}"
+  },
+  "media_control": {
+   "risk": "low",
+   "desc": "चल रहे संगीत/मीडिया को play, pause, next या previous करना",
+   "args": "{\"action\": \"play|pause|next|previous\"}"
+  },
+  "recall": {
+   "risk": "low",
+   "desc": "याददाश्त में खोजना (तथ्य, पुरानी बातें, नोट्स)",
+   "args": "{\"query\": \"क्या याद करना है\"}"
+  },
+  "usage_stats": {
+   "risk": "low",
+   "desc": "पिछले दिनों किस ऐप पर कितना समय गया (सबसे ज़्यादा इस्तेमाल हुए ऐप)",
+   "args": "{\"days\": 1-7}"
+  },
+  "read_notifications": {
+   "risk": "high",
+   "desc": "हाल के नोटिफ़िकेशन पढ़ना और सारांश बताना (हर बार उपयोगकर्ता से पूछकर)",
+   "args": "{\"limit\": 1-20}"
+  },
+  "dismiss_notifications": {
+   "risk": "high",
+   "desc": "किसी ऐप के नोटिफ़िकेशन हटाना (पूछकर)",
+   "args": "{\"app\": \"ऐप का नाम\"}"
+  },
+  "send_sms": {
+   "risk": "high",
+   "desc": "SMS भेजना (पूरा संदेश पढ़कर सुनाया जाएगा, हर बार उपयोगकर्ता से पूछकर)",
+   "args": "{\"contact\": \"नाम या नंबर\", \"text\": \"संदेश\"}"
+  },
+  "send_whatsapp": {
+   "risk": "high",
+   "desc": "WhatsApp संदेश तैयार करना (भेजने का बटन उपयोगकर्ता दबाएगा, हर बार पूछकर)",
+   "args": "{\"contact\": \"नाम या नंबर\", \"text\": \"संदेश\"}"
+  },
+  "share_text": {
+   "risk": "high",
+   "desc": "कोई पाठ किसी ऐप में साझा करना (साझा करने का चुनाव उपयोगकर्ता करेगा, पूछकर)",
+   "args": "{\"text\": \"साझा करने का पाठ\"}"
+  },
+  "clear_cache": {
+   "risk": "high",
+   "desc": "इस ऐप का कैश साफ़ करना और फ़ोन की स्टोरेज-सेटिंग खोलना (पूछकर)",
+   "args": "{}"
+  },
+  "edit_rule": {
+   "risk": "high",
+   "desc": "किसी बने हुए नियम को चालू/बंद करना या हटाना (पूछकर)",
+   "args": "{\"name\": \"नियम का नाम\", \"action\": \"enable|disable|delete\"}"
+  },
+  "delegate": {
+   "risk": "low",
+   "desc": "किसी दूसरे किरदार को उसके हुनर का काम सौंपना; वह अपनी अनुमतियों और पुष्टि के नियमों में काम करेगा",
+   "args": "{\"to\": \"jarvis|friday|edith|vision|ultron|dume|u|karen\", \"task\": \"काम एक-दो वाक्य में\"}"
+  },
+  "camera_look": {
+   "risk": "high",
+   "desc": "कैमरे से तस्वीर लेकर उसमें लिखा पढ़ना (OCR) या चीज़ पहचानना। तस्वीर सिर्फ़ उपयोगकर्ता के relay और LLM को जाती है (हर बार पूछकर)",
+   "args": "{\"mode\": \"ocr|identify|ask\", \"question\": \"क्या देखना है (वैकल्पिक)\"}"
+  },
+  "reply_notification": {
+   "risk": "high",
+   "desc": "किसी ऐप की आई हुई सूचना का जवाब देना (जैसे WhatsApp/SMS का quick reply; हर बार पूछकर)",
+   "args": "{\"app\": \"ऐप का नाम\", \"text\": \"जवाब\"}"
+  },
+  "find_file": {
+   "risk": "low",
+   "desc": "फ़ोन में फ़ाइल ढूँढना (Downloads, Documents, Pictures आदि में नाम से)",
+   "args": "{\"name\": \"फ़ाइल का नाम या उसका हिस्सा\"}"
+  },
+  "organise_downloads": {
+   "risk": "high",
+   "desc": "Downloads की फ़ाइलों को प्रकार के हिसाब से फ़ोल्डरों में रखना (कुछ मिटता नहीं; वापस हो सकता है; पूछकर)",
+   "args": "{}"
+  },
+  "undo_organise": {
+   "risk": "high",
+   "desc": "पिछली बार की 'Downloads सजाना' कार्रवाई वापस करना (पूछकर)",
+   "args": "{}"
+  },
+  "delete_file": {
+   "risk": "high",
+   "desc": "फ़ाइल हटाना: वह सीधे मिटती नहीं, कचरे के फ़ोल्डर में 30 दिन रहती है और वापस आ सकती है (पूछकर)",
+   "args": "{\"name\": \"फ़ाइल का पूरा नाम\"}"
+  },
+  "restore_file": {
+   "risk": "high",
+   "desc": "कचरे में गई फ़ाइल वापस लाना (पूछकर)",
+   "args": "{\"name\": \"फ़ाइल का नाम\"}"
+  },
+  "search_in_app": {
+   "risk": "low",
+   "desc": "किसी ऐप को खोलकर उसके अंदर की खोज में कुछ ढूँढना (तुम स्क्रीन पर चलोगे; कुछ बदलने से पहले पूछा जाएगा)",
+   "args": "{\"app\": \"ऐप का नाम\", \"query\": \"क्या खोजना है\"}"
   }
  },
  "permissions": {
@@ -93,7 +213,31 @@
    "propose_rule",
    "battery_saver",
    "research",
-   "ask_family"
+   "ask_family",
+   "add_calendar_event",
+   "set_brightness",
+   "bluetooth_panel",
+   "device_info",
+   "copy_text",
+   "media_control",
+   "recall",
+   "usage_stats",
+   "read_notifications",
+   "dismiss_notifications",
+   "send_sms",
+   "send_whatsapp",
+   "share_text",
+   "clear_cache",
+   "edit_rule",
+   "delegate",
+   "camera_look",
+   "reply_notification",
+   "find_file",
+   "organise_downloads",
+   "undo_organise",
+   "delete_file",
+   "restore_file",
+   "search_in_app"
   ],
   "friday": [
    "set_alarm",
@@ -108,7 +252,18 @@
    "propose_rule",
    "battery_saver",
    "research",
-   "ask_family"
+   "ask_family",
+   "media_control",
+   "add_calendar_event",
+   "read_notifications",
+   "send_sms",
+   "send_whatsapp",
+   "copy_text",
+   "recall",
+   "set_brightness",
+   "reply_notification",
+   "find_file",
+   "search_in_app"
   ],
   "edith": [
    "torch",
@@ -118,7 +273,15 @@
    "propose_rule",
    "battery_saver",
    "research",
-   "ask_family"
+   "ask_family",
+   "device_info",
+   "usage_stats",
+   "bluetooth_panel",
+   "recall",
+   "read_notifications",
+   "camera_look",
+   "find_file",
+   "search_in_app"
   ],
   "dume": [
    "torch",
@@ -127,7 +290,17 @@
    "screen_task",
    "propose_rule",
    "research",
-   "ask_family"
+   "ask_family",
+   "clear_cache",
+   "copy_text",
+   "device_info",
+   "recall",
+   "find_file",
+   "organise_downloads",
+   "undo_organise",
+   "delete_file",
+   "restore_file",
+   "search_in_app"
   ],
   "u": [
    "torch",
@@ -136,26 +309,44 @@
    "screen_task",
    "propose_rule",
    "research",
-   "ask_family"
+   "ask_family",
+   "clear_cache",
+   "copy_text",
+   "device_info",
+   "recall",
+   "find_file",
+   "organise_downloads",
+   "undo_organise",
+   "delete_file",
+   "restore_file",
+   "search_in_app"
   ],
   "vision": [
    "remember_fact",
    "propose_rule",
    "research",
-   "ask_family"
+   "ask_family",
+   "recall"
   ],
   "ultron": [
    "remember_fact",
    "screen_task",
    "propose_rule",
    "research",
-   "ask_family"
+   "ask_family",
+   "recall",
+   "usage_stats",
+   "read_notifications",
+   "device_info",
+   "delegate",
+   "search_in_app"
   ],
   "karen": [
    "remember_fact",
    "propose_rule",
    "research",
-   "ask_family"
+   "ask_family",
+   "recall"
   ]
  }
 }

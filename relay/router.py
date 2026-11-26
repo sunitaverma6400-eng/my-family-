@@ -134,6 +134,28 @@ def _classify(status, headers, text):
 _THINK = re.compile(r"<think>.*?</think>", re.S)
 
 
+def iter_sse(resp):
+    """Text pieces from an OpenAI-style server-sent-events response."""
+    try:
+        resp.encoding = "utf-8"
+    except Exception:
+        pass
+    for line in resp.iter_lines(decode_unicode=True):
+        if isinstance(line, bytes):
+            line = line.decode("utf-8", "replace")
+        if not line or not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            break
+        try:
+            piece = json.loads(data)["choices"][0].get("delta", {}).get("content")
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+            continue
+        if piece:
+            yield piece
+
+
 def _clean(text):
     return _THINK.sub("", text or "").strip()
 
@@ -324,7 +346,22 @@ class Router:
             raise _Fail("empty", status, detail="empty text")
         return text, data
 
-    def complete(self, tier, messages, temperature=None, max_tokens=None):
+    def healthy_ratio(self):
+        """Share of configured keys that are not cooling right now (1.0 when there are no keys at all)."""
+        now = self.now()
+        allk = [k for lst in self.keys.values() for k in lst]
+        if not allk:
+            return 1.0
+        return sum(1 for k in allk if k.cooling_until <= now) / len(allk)
+
+    def complete(self, tier, messages, temperature=None, max_tokens=None, priority=1):
+        """priority: 1 = my direct request, 2 = running task, 3 = research, 4 = family chatter / background.
+        When quota is low (many keys cooling) priorities 3 and 4 wait, so 1 and 2 always have room."""
+        floor = self.cfg.get("reserve", {})
+        if priority >= 3 and self.healthy_ratio() < floor.get("min_healthy_ratio_for_background", 0.5):
+            raise AllBusy(self._soonest_retry(), ["reserved_for_direct_requests"])
+        if priority >= 2 and self.healthy_ratio() < floor.get("min_healthy_ratio_for_tasks", 0.15):
+            raise AllBusy(self._soonest_retry(), ["almost_no_healthy_keys"])
         req = self.cfg["request"]
         temperature = req["temperature"] if temperature is None else temperature
         max_tokens = req["max_tokens"] if max_tokens is None else max_tokens
@@ -361,14 +398,17 @@ class Router:
         raise AllBusy(self._soonest_retry(), errors)
 
     # ---------- grounded web search (Gemini native API with Google Search tool) ----------
-    def search_grounded(self, prompt, max_tokens=1200):
+    def search_grounded(self, prompt, max_tokens=1200, priority=3):
         """One web-grounded answer. Returns (text, sources[{title,url}], provider, model). Raises AllBusy.
 
         Uses the same key pool, cooldowns and circuit breaker as normal calls. Only Gemini offers grounding here;
         callers fall back to a plain page search when this raises AllBusy.
         """
         rc = self.cfg.get("research", {})
-        model = rc.get("model", "gemini-3-flash-preview")
+        floor = self.cfg.get("reserve", {})
+        if priority >= 3 and self.healthy_ratio() < floor.get("min_healthy_ratio_for_background", 0.5):
+            raise AllBusy(self._soonest_retry(), ["reserved_for_direct_requests"])
+        model = rc.get("model", "gemini-flash-lite-latest")
         timeout = rc.get("timeout_s", 40)
         errors = []
         if not self._provider_ready("gemini", model):
@@ -421,6 +461,128 @@ class Router:
                     seen.add(u)
                     sources.append({"title": str(web.get("title") or "")[:120], "url": u})
             return _clean(text), sources[:6], "gemini", model
+        raise AllBusy(self._soonest_retry(), errors)
+
+    # ---------- embeddings (Gemini batchEmbedContents) ----------
+    def embed(self, texts, priority=3):
+        """Vectors for short texts (memory retrieval). Returns list of float lists. Raises AllBusy; callers fall back to keywords."""
+        ec = self.cfg.get("embedding", {})
+        model, dims = ec.get("model", "gemini-embedding-001"), int(ec.get("dims", 256))
+        floor = self.cfg.get("reserve", {})
+        if priority >= 3 and self.healthy_ratio() < floor.get("min_healthy_ratio_for_background", 0.5):
+            raise AllBusy(self._soonest_retry(), ["reserved_for_direct_requests"])
+        errors = []
+        for _ in range(self.cfg["request"]["max_attempts_per_provider"]):
+            ks = self._pick_key("gemini")
+            if ks is None:
+                errors.append("gemini:no_healthy_key (cooling)")
+                break
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents"
+            body = {"requests": [{"model": f"models/{model}", "content": {"parts": [{"text": t[:2000]}]},
+                                  "outputDimensionality": dims, "taskType": "SEMANTIC_SIMILARITY"} for t in texts]}
+            try:
+                try:
+                    resp = self.transport(url, headers={"x-goog-api-key": ks.key, "Content-Type": "application/json"},
+                                          json=body, timeout=ec.get("timeout_s", 12))
+                except requests.RequestException as e:
+                    raise _Fail("timeout", detail=type(e).__name__)
+                if resp.status_code != 200:
+                    b = (getattr(resp, "text", "") or "")[:300].replace(ks.key, "***")
+                    kind, ra = _classify(resp.status_code, resp.headers, b)
+                    raise _Fail(kind, resp.status_code, ra, b)
+                try:
+                    vecs = [[round(float(x), 5) for x in e["values"]] for e in resp.json()["embeddings"]]
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    raise _Fail("empty", resp.status_code, detail="bad embedding shape")
+                if len(vecs) != len(texts):
+                    raise _Fail("empty", resp.status_code, detail="count mismatch")
+            except _Fail as f:
+                errors.append(f"gemini/{model}:{f.kind}:{f.status or '-'}")
+                self._on_failure(ks, model, f)
+                if f.kind in ("model", "bad_request") or not self._provider_ready("gemini", model):
+                    break
+                continue
+            self._on_success(ks)
+            return vecs
+        raise AllBusy(self._soonest_retry(), errors)
+
+    # ---------- streaming chat (OpenAI-compatible SSE) ----------
+    def _open_stream(self, ks, model, messages, temperature, max_tokens, extra=None):
+        req = self.cfg["request"]
+        headers = {"Authorization": f"Bearer {ks.key}", "Content-Type": "application/json"}
+        if ks.provider == "openrouter":
+            headers["X-Title"] = "Stark Family"
+        payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "stream": True}
+        if extra:
+            payload.update(extra)
+        try:
+            resp = self.transport(PROVIDERS[ks.provider]["url"], headers=headers, json=payload, timeout=req["timeout_s"], stream=True)
+        except requests.Timeout:
+            raise _Fail("timeout", detail="timeout")
+        except requests.RequestException as e:
+            raise _Fail("timeout", detail=type(e).__name__)
+        if resp.status_code != 200:
+            body = (getattr(resp, "text", "") or "")[:300].replace(ks.key, "***")
+            kind, ra = _classify(resp.status_code, resp.headers, body)
+            raise _Fail(kind, resp.status_code, ra, body)
+        return resp
+
+    def stream(self, tier, messages, temperature=None, max_tokens=None, priority=1):
+        """Yields ("delta", text) pieces and finally ("done", Result), or ("error", reason) if the stream broke after output began.
+        Key rotation and provider fallback happen only BEFORE the first piece; once words are flowing there is no silent switch mid-sentence.
+        Raises AllBusy when nothing could start."""
+        floor = self.cfg.get("reserve", {})
+        if priority >= 3 and self.healthy_ratio() < floor.get("min_healthy_ratio_for_background", 0.5):
+            raise AllBusy(self._soonest_retry(), ["reserved_for_direct_requests"])
+        if priority >= 2 and self.healthy_ratio() < floor.get("min_healthy_ratio_for_tasks", 0.15):
+            raise AllBusy(self._soonest_retry(), ["almost_no_healthy_keys"])
+        req = self.cfg["request"]
+        temperature = req["temperature"] if temperature is None else temperature
+        max_tokens = req["max_tokens"] if max_tokens is None else max_tokens
+        chain = self.cfg["tiers"].get(tier) or self.cfg["tiers"]["fast"]
+        total, errors = 0, []
+        for entry in chain:
+            prov, model = entry["provider"], entry["model"]
+            if not self._provider_ready(prov, model):
+                errors.append(f"{prov}/{model}:{'no_key' if not self.keys.get(prov) else 'cooling/skipped'}")
+                continue
+            used = 0
+            while used < req["max_attempts_per_provider"] and total < req["max_attempts_total"]:
+                ks = self._pick_key(prov)
+                if ks is None:
+                    errors.append(f"{prov}/{model}:no_healthy_key")
+                    break
+                used += 1
+                total += 1
+                started, parts = False, []
+                try:
+                    resp = self._open_stream(ks, model, messages, temperature, max_tokens, entry.get("params"))
+                    try:
+                        for piece in iter_sse(resp):
+                            started = True
+                            parts.append(piece)
+                            yield ("delta", piece)
+                    except requests.RequestException as e:
+                        raise _Fail("timeout", detail=type(e).__name__)
+                    if not _clean("".join(parts)):
+                        raise _Fail("empty", 200, detail="empty stream")
+                except _Fail as f:
+                    errors.append(f"{prov}/{model}:{f.kind}")
+                    self._on_failure(ks, model, f)
+                    if started:
+                        yield ("error", f"stream_interrupted:{f.kind}")
+                        return
+                    if f.kind in ("model", "bad_request"):
+                        break
+                    if not self._provider_ready(prov, model):
+                        break
+                    continue
+                self._on_success(ks)
+                log.info("ok stream tier=%s provider=%s model=%s key=%s attempts=%d", tier, prov, model, ks.kid, total)
+                yield ("done", Result(_clean("".join(parts)), prov, model, ks.hint, total, tier, None))
+                return
+            if total >= req["max_attempts_total"]:
+                break
         raise AllBusy(self._soonest_retry(), errors)
 
     # ---------- Brain Status ----------

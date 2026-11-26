@@ -98,7 +98,7 @@ class RuleDraft(val rule: Rule, val text: String, val describe: String)
 /** Turns a rule's JSON into plain Hindi, so nothing about it is hidden. */
 object RuleModel {
     private val DAYS = mapOf(1 to "सोम", 2 to "मंगल", 3 to "बुध", 4 to "गुरु", 5 to "शुक्र", 6 to "शनि", 7 to "रवि")
-    val HIGH_TOOLS = setOf("call_contact")
+    val HIGH_TOOLS = setOf("call_contact", "send_sms", "send_whatsapp")
 
     fun hasHigh(actions: JSONArray): Boolean = (0 until actions.length()).any { actions.optJSONObject(it)?.optString("tool") in HIGH_TOOLS }
     fun hasHigh(r: Rule): Boolean = hasHigh(JSONArray(r.actionsJson))
@@ -161,6 +161,10 @@ object RuleModel {
             "set_timer" -> "टाइमर ${g.optInt("seconds")} सेकंड"
             "remember_fact" -> "याद रखना: ${g.optString("fact")}"
             "call_contact" -> "कॉल: ${g.optString("contact")} (हर बार पूछकर)"
+            "send_sms" -> "SMS: ${g.optString("contact")} को \"${g.optString("text")}\" (हर बार पूछकर)"
+            "send_whatsapp" -> "WhatsApp: ${g.optString("contact")} को \"${g.optString("text")}\" (हर बार पूछकर, भेजने का बटन आप दबाएँगे)"
+            "media_control" -> "मीडिया: ${g.optString("action")}"
+            "bluetooth_panel" -> "Bluetooth की सेटिंग खोलना (स्विच आप दबाएँगे)"
             "say" -> "${Characters.byId(g.optString("character")).name} कहेगी/कहेगा: ‘${g.optString("text")}’"
             else -> a.optString("tool")
         }

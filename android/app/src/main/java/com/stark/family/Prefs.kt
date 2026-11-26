@@ -1,8 +1,13 @@
 package com.stark.family
 
 import android.content.Context
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** Only the relay address and shared token live here. API keys never touch the app. */
+private val LANGS = setOf("hi", "en", "hinglish", "auto")
+
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("stark_prefs", Context.MODE_PRIVATE)
 
@@ -76,8 +81,69 @@ class Prefs(ctx: Context) {
 
     /** Ultron starts as an Observer (suggest only). Raising lets him act only with a "yes" each time. */
     var ultronRaised: Boolean
-        get() = sp.getBoolean("ultron_raised", false)
-        set(v) { sp.edit().putBoolean("ultron_raised", v).apply() }
+        get() = ultronLevel == 3
+        set(v) { ultronLevel = if (v) 3 else 2 }
+
+    /** Ultron's access: 1 = speech only, 2 = Observer (read, search, analyse: the default), 3 = Analyst + approval (plans and delegates; every change needs a yes). */
+    var ultronLevel: Int
+        get() {
+            val v = sp.getInt("ultron_level", -1)
+            return if (v in 1..3) v else if (sp.getBoolean("ultron_raised", false)) 3 else 2
+        }
+        set(v) { sp.edit().putInt("ultron_level", v.coerceIn(1, 3)).putBoolean("ultron_raised", v == 3).apply() }
+
+    /** A tiny screen picture after each agent step, for the Activity log. Never in sensitive apps. */
+    var stepThumbs: Boolean
+        get() = sp.getBoolean("step_thumbs", true)
+        set(v) { sp.edit().putBoolean("step_thumbs", v).apply() }
+
+    /** Meaning-based memory search (vectors made by your own relay). Off = keyword search only. */
+    var embeddings: Boolean
+        get() = sp.getBoolean("embeddings", true)
+        set(v) { sp.edit().putBoolean("embeddings", v).apply() }
+
+    /** Optional: Ultron reviews an answer or fix plan for flaws before it is shown. */
+    var ultronReview: Boolean
+        get() = sp.getBoolean("ultron_review", false)
+        set(v) { sp.edit().putBoolean("ultron_review", v).apply() }
+
+    /** Quiet research on something the user said they will do. Off by default; small daily budget. */
+    var proactiveResearch: Boolean
+        get() = sp.getBoolean("proactive_research", false)
+        set(v) { sp.edit().putBoolean("proactive_research", v).apply() }
+
+    var researchBudget: Int
+        get() = sp.getInt("research_budget", 3).coerceIn(1, 10)
+        set(v) { sp.edit().putInt("research_budget", v.coerceIn(1, 10)).apply() }
+
+    private fun today(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+
+    fun researchUsedToday(): Int = if (sp.getString("research_day", "") == today()) sp.getInt("research_used", 0) else 0
+
+    fun noteResearchUsed() {
+        sp.edit().putString("research_day", today()).putInt("research_used", researchUsedToday() + 1).apply()
+    }
+
+    /** Reply language: hi (Devanagari Hindi, default), en, hinglish (Roman), auto (mirror the user). A character can override it. */
+    var language: String
+        get() = sp.getString("lang", "hi").let { if (it in LANGS) it!! else "hi" }
+        set(v) { sp.edit().putString("lang", if (v in LANGS) v else "hi").apply() }
+
+    /** "" means: follow the global setting. */
+    fun languageOverride(id: String): String = sp.getString("lang_$id", "").let { if (it in LANGS) it!! else "" }
+
+    fun setLanguageFor(id: String, v: String) { sp.edit().putString("lang_$id", if (v in LANGS) v else "").apply() }
+
+    fun languageFor(id: String): String = languageOverride(id).ifEmpty { language }
+
+    /** True while the user wants the bubble running; the watchdog restarts it if the system killed it. */
+    var bubbleWanted: Boolean
+        get() = sp.getBoolean("bubble_wanted", false)
+        set(v) { sp.edit().putBoolean("bubble_wanted", v).apply() }
+
+    var onboarded: Boolean
+        get() = sp.getBoolean("onboarded", false)
+        set(v) { sp.edit().putBoolean("onboarded", v).apply() }
 
     fun charMuted(id: String): Boolean = sp.getBoolean("muted_$id", false)
     fun setCharMuted(id: String, v: Boolean) { sp.edit().putBoolean("muted_$id", v).apply() }

@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,6 +68,8 @@ fun MemoryScreen(ch: Character, onClose: () -> Unit) {
     var edit by remember { mutableStateOf<EditTarget?>(null) }
     var confirm by remember { mutableStateOf<Confirm?>(null) }
     var status by remember { mutableStateOf("") }
+    var passAsk by remember { mutableStateOf<PassAsk?>(null) }
+    var pendingPass by remember { mutableStateOf("") }
 
     LaunchedEffect(tick) {
         facts = repo.dao.facts()
@@ -79,23 +82,31 @@ fun MemoryScreen(ch: Character, onClose: () -> Unit) {
     val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
         if (uri != null) scope.launch {
             status = try {
-                ctx.contentResolver.openOutputStream(uri)?.use { repo.backupZip(it) }
-                "बैकअप बन गया।"
+                ctx.contentResolver.openOutputStream(uri)?.use { repo.backupZip(it, pendingPass) }
+                if (pendingPass.isEmpty()) "बैकअप बन गया (बिना लॉक)।" else "बैकअप बन गया और पासफ़्रेज़ से लॉक है। पासफ़्रेज़ भूले तो खुल नहीं पाएगा।"
             } catch (e: Exception) {
                 "बैकअप नहीं बन पाया।"
+            } finally {
+                pendingPass = ""
             }
         }
     }
     val opener = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) confirm = Confirm("मौजूदा याददाश्त हटाकर इस बैकअप से बदल दूँ?") {
-            scope.launch {
-                status = try {
-                    val n = ctx.contentResolver.openInputStream(uri)?.use { repo.restoreZip(it) } ?: -1
-                    if (n >= 0) "रीस्टोर हो गया ($n प्रविष्टियाँ)।" else "यह फ़ाइल हमारे बैकअप जैसी नहीं लगी।"
-                } catch (e: Exception) {
-                    "रीस्टोर नहीं हो पाया।"
+        if (uri != null) passAsk = PassAsk("अगर बैकअप लॉक था तो पासफ़्रेज़ डालिए (नहीं तो ख़ाली छोड़िए)") { pass ->
+            confirm = Confirm("मौजूदा याददाश्त हटाकर इस बैकअप से बदल दूँ?") {
+                scope.launch {
+                    status = try {
+                        val n = ctx.contentResolver.openInputStream(uri)?.use { repo.restoreZip(it, pass) } ?: -1
+                        when {
+                            n >= 0 -> "रीस्टोर हो गया ($n प्रविष्टियाँ)।"
+                            n == -2 -> "बैकअप लॉक है: पासफ़्रेज़ नहीं दिया या ग़लत है।"
+                            else -> "यह फ़ाइल हमारे बैकअप जैसी नहीं लगी।"
+                        }
+                    } catch (e: Exception) {
+                        "रीस्टोर नहीं हो पाया।"
+                    }
+                    tick++
                 }
-                tick++
             }
         }
     }
@@ -231,7 +242,12 @@ fun MemoryScreen(ch: Character, onClose: () -> Unit) {
         }
         if (status.isNotEmpty()) Text(status, color = ch.accent2, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { saver.launch("stark-memory-${fmt(System.currentTimeMillis(), "yyyyMMdd")}.zip") }) { Text("💾 बैकअप", color = ch.accent2, fontSize = 13.sp) }
+            TextButton(onClick = {
+                passAsk = PassAsk("बैकअप को पासफ़्रेज़ से लॉक करें? (ख़ाली छोड़ेंगे तो बिना लॉक बनेगा)") { pass ->
+                    pendingPass = pass
+                    saver.launch("stark-memory-${fmt(System.currentTimeMillis(), "yyyyMMdd")}.zip")
+                }
+            }) { Text("💾 बैकअप", color = ch.accent2, fontSize = 13.sp) }
             TextButton(onClick = { opener.launch(arrayOf("*/*")) }) { Text("📥 रीस्टोर", color = ch.accent2, fontSize = 13.sp) }
             TextButton(onClick = {
                 confirm = Confirm("सब कुछ (तथ्य, बातचीत, सार, नोट्स) हमेशा के लिए मिटा दूँ? यह वापस नहीं आएगा।") {
@@ -241,6 +257,7 @@ fun MemoryScreen(ch: Character, onClose: () -> Unit) {
         }
     }
 
+    passAsk?.let { a -> PassDialog(a) { passAsk = null } }
     edit?.let { t -> EditDialog(t, ch.accent) { edit = null } }
     confirm?.let { c ->
         AlertDialog(
@@ -287,5 +304,25 @@ private fun EditDialog(t: EditTarget, accent: Color, onDismiss: () -> Unit) {
         },
         confirmButton = { TextButton(onClick = { t.onSave(text.trim(), imp); onDismiss() }) { Text("सहेजो", color = accent) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("रद्द", color = DIM) } },
+    )
+}
+
+
+private class PassAsk(val title: String, val onOk: (String) -> Unit)
+
+@Composable
+private fun PassDialog(ask: PassAsk, onDismiss: () -> Unit) {
+    var pass by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(ask.title, fontSize = 15.sp) },
+        text = {
+            OutlinedTextField(
+                value = pass, onValueChange = { pass = it }, singleLine = true,
+                label = { Text("पासफ़्रेज़") }, visualTransformation = PasswordVisualTransformation(),
+            )
+        },
+        confirmButton = { TextButton(onClick = { onDismiss(); ask.onOk(pass) }) { Text("आगे") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("रद्द") } },
     )
 }

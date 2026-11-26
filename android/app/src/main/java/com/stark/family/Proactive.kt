@@ -42,7 +42,7 @@ object Autonomy {
     fun allowedLevels(ctx: Context, id: String): Set<Int> = when (id) {
         "jarvis" -> setOf(1, 2, 3)
         "friday", "edith", "dume", "u" -> setOf(1, 2)
-        "ultron" -> if (Prefs(ctx).ultronRaised) setOf(1, 3) else setOf(1)
+        "ultron" -> if (Prefs(ctx).ultronLevel == 3) setOf(1, 3) else setOf(1)
         else -> setOf(1)
     }
 
@@ -437,7 +437,7 @@ object Proactive {
         val b = Notification.Builder(app, CH).setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("${who.name} · ${s.title}")
             .setContentText(s.text).setStyle(Notification.BigTextStyle().bigText(s.text))
             .setContentIntent(PendingIntent.getActivity(app, 0, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)).setAutoCancel(true)
-        if (!s.type.startsWith("roast")) {
+        if (!s.type.startsWith("roast") && s.type != "info") {
             b.addAction(Notification.Action.Builder(0, if (s.type == "pattern") "✅ नियम बनाओ" else "✅ करो", btn(app, id, A_YES, 1)).build())
             b.addAction(Notification.Action.Builder(0, "❌ अभी नहीं", btn(app, id, A_NO, 2)).build())
             b.addAction(Notification.Action.Builder(0, "🔕 ऐसे सुझाव बंद", btn(app, id, A_MUTE, 3)).build())

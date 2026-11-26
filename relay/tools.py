@@ -3,6 +3,7 @@
 The model only *proposes* tool calls. Anything not on the character's allow-list, or with invalid
 arguments, is dropped here; the Android app checks risk again in its own code before running anything.
 """
+import datetime
 import json
 import os
 import re
@@ -70,7 +71,45 @@ def _fact(v):
     return s
 
 
+PERSONA_IDS = ("jarvis", "friday", "edith", "vision", "ultron", "dume", "u", "karen")
+
+
+def _date(v):
+    s = _str(v, 10)
+    try:
+        datetime.date.fromisoformat(s)
+    except ValueError:
+        raise ValueError("bad date")
+    return s
+
+
 VALIDATORS = {
+    "add_calendar_event": lambda a: {"title": _str(a.get("title"), 80), "date": _date(a.get("date")),
+                                     "hour": _int(a.get("hour"), 0, 23), "minute": _int(a.get("minute", 0), 0, 59),
+                                     "duration_min": _int(a.get("duration_min", 60), 5, 1440)},
+    "set_brightness": lambda a: {"percent": _int(a.get("percent"), 0, 100)},
+    "bluetooth_panel": lambda a: {},
+    "device_info": lambda a: {"what": _choice(a.get("what", "all"), ("battery", "storage", "network", "all"))},
+    "copy_text": lambda a: {"text": _str(a.get("text"), 500)},
+    "media_control": lambda a: {"action": _choice(a.get("action"), ("play", "pause", "next", "previous"))},
+    "recall": lambda a: {"query": _str(a.get("query"), 100)},
+    "usage_stats": lambda a: {"days": _int(a.get("days", 1), 1, 7)},
+    "read_notifications": lambda a: {"limit": _int(a.get("limit", 10), 1, 20)},
+    "dismiss_notifications": lambda a: {"app": _str(a.get("app"), 40)},
+    "send_sms": lambda a: {"contact": _str(a.get("contact"), 60), "text": _str(a.get("text"), 300)},
+    "send_whatsapp": lambda a: {"contact": _str(a.get("contact"), 60), "text": _str(a.get("text"), 300)},
+    "share_text": lambda a: {"text": _str(a.get("text"), 500)},
+    "clear_cache": lambda a: {},
+    "edit_rule": lambda a: {"name": _str(a.get("name"), 60), "action": _choice(a.get("action"), ("enable", "disable", "delete"))},
+    "camera_look": lambda a: {"mode": _choice(a.get("mode", "ask"), ("ocr", "identify", "ask")), "question": str(a.get("question") or "").strip()[:200]},
+    "reply_notification": lambda a: {"app": _str(a.get("app"), 40), "text": _str(a.get("text"), 300)},
+    "find_file": lambda a: {"name": _str(a.get("name"), 80)},
+    "organise_downloads": lambda a: {},
+    "undo_organise": lambda a: {},
+    "delete_file": lambda a: {"name": _str(a.get("name"), 120)},
+    "restore_file": lambda a: {"name": _str(a.get("name"), 120)},
+    "search_in_app": lambda a: {"app": _str(a.get("app"), 40), "query": _str(a.get("query"), 100)},
+    "delegate": lambda a: {"to": _choice(a.get("to"), PERSONA_IDS), "task": _str(a.get("task"), 300)},
     "set_dnd": lambda a: {"on": _bool(a.get("on"))},
     "set_volume": lambda a: {"stream": _choice(a.get("stream", "media"), ("media", "ring", "alarm", "notification")),
                              "percent": _int(a.get("percent"), 0, 100)},

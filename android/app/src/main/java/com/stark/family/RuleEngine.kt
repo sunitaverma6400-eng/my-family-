@@ -354,7 +354,13 @@ object RuleScheduler {
             am.cancel(pi(""))
             return
         }
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, best.first, pi(best.second))
+        val exactOk = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+        try {
+            if (exactOk) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, best.first, pi(best.second))
+            else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, best.first, pi(best.second))
+        } catch (e: SecurityException) {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, best.first, pi(best.second))  // exact not allowed: a few minutes' slack
+        }
     }
 }
 
@@ -448,6 +454,10 @@ class ContextWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             if (b != null && sit.charging != true) RuleEngine.handle(app, RuleEvent("battery", b.toString()))
             RuleScheduler.reschedule(app)
             Geo.ensure(app)
+            ActivityTracker.start(app)
+            Watchdog.check(app)
+            FileTools.purgeTrash(app)
+            Thumbs.purgeOld(app)
             Proactive.tick(app)
         } catch (_: Exception) { }
         return Result.success()
@@ -465,6 +475,7 @@ object Background {
                 RuleRepo.get(app).refreshCache()
                 RuleScheduler.reschedule(app)
                 Geo.ensure(app)
+                ActivityTracker.start(app)
             } catch (_: Exception) { }
         }
     }

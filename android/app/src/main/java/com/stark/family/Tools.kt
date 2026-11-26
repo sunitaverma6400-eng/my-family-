@@ -38,11 +38,24 @@ object Tools {
         "open_app" to Risk.LOW, "torch" to Risk.LOW, "call_contact" to Risk.HIGH, "remember_fact" to Risk.LOW,
         "screen_task" to Risk.LOW, "set_dnd" to Risk.LOW, "set_volume" to Risk.LOW, "wifi_panel" to Risk.LOW, "battery_saver" to Risk.LOW,
         "propose_rule" to Risk.LOW, "research" to Risk.LOW, "ask_family" to Risk.LOW,
-    )
+    ) + MoreTools.RISK
     val NAMES: List<String> = RISK.keys.toList()
 
     /** In the main chat screen only memory tools run; phone actions (alarm, call, torch…) come from the bubble. */
     val MEMORY_NAMES: List<String> = listOf("remember_fact", "propose_rule", "research", "ask_family")
+
+    private val ULTRON_L2 = setOf("research", "ask_family", "recall", "usage_stats", "read_notifications", "device_info", "screen_task", "remember_fact")
+    private val ULTRON_L3 = ULTRON_L2 + setOf("delegate", "propose_rule")
+
+    /** Tool names this character may be offered. Ultron's list follows his access level (1 speech only, 2 Observer, 3 Analyst + approval). */
+    fun namesFor(ctx: Context, characterId: String, base: List<String>): List<String> {
+        if (characterId != "ultron") return base
+        return when (Prefs(ctx).ultronLevel) {
+            1 -> emptyList()
+            3 -> base.filter { it in ULTRON_L3 }
+            else -> base.filter { it in ULTRON_L2 }
+        }
+    }
 
     fun needsConfirm(c: ToolCall): Boolean = (RISK[c.name] ?: Risk.HIGH) != Risk.LOW || c.confirm
 
@@ -171,7 +184,7 @@ object Tools {
             "screen_task" -> fail("स्क्रीन-काम सिर्फ़ बबल से चलता है।")
             "research", "ask_family" -> fail("खोज और परिवार से पूछना चैट/बबल से चलते हैं।")
             "call_contact" -> planCall(ctx, c.args.getString("contact"))
-            else -> fail("यह औज़ार मेरे पास नहीं है: ${c.name}")
+            else -> MoreTools.plan(ctx, c, character) ?: fail("यह औज़ार मेरे पास नहीं है: ${c.name}")
         }
     } catch (e: Exception) {
         fail("औज़ार के विवरण में गड़बड़ थी, इसलिए कुछ नहीं किया।")

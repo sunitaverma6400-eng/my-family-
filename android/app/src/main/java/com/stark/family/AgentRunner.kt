@@ -352,6 +352,9 @@ class AgentRunner(
                 }
                 history.add(StepRec(n, st.action, label, result))
                 dao.insertStep(AgentStepLog(runId = run.id, n = n, ts = System.currentTimeMillis(), action = st.action, target = label, reason = st.reason, result = result, confirmed = confirmedNote))
+                if (Prefs(ctx).stepThumbs && unlocked.isEmpty() && tree.pkg !in blocked && !isSensitivePkg(tree.pkg) && !tree.empty) {
+                    try { Thumbs.capture(ctx, svc, ui, run.id, n) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+                }
 
                 if (result.startsWith("ठीक")) {
                     failStreak = 0

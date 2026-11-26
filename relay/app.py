@@ -4,17 +4,19 @@ Endpoints: GET /health, GET /test (open pages); GET /characters, /brain_status, 
 Run with ONE gunicorn worker so key cooldown state is shared (see render.yaml).
 """
 import hmac
+import json
 import logging
 import os
 import time
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 
-from prompting import (build_messages, clean_history, language_ok, load_personas,
+from prompting import (build_messages, clean_history, language_matches, language_ok, load_personas, norm_lang,
                        rewrite_request, strip_emoji)
 import requests
 
 import agent as agentmod
+from stream_speech import SpeechStream
 import family as familymod
 import research as researchmod
 import rules as rulesmod
@@ -27,7 +29,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("relay")
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-VERSION = "m10d"  # shown at /health: confirms which relay code is actually running
+VERSION = "m10i"  # shown at /health: confirms which relay code is actually running
 
 
 def create_app(router=None, personas=None, token=None):
@@ -100,7 +102,7 @@ def create_app(router=None, personas=None, token=None):
         if prompt is None:
             return jsonify(error="bad_request"), 400
         try:
-            res = router.complete("fast", prompt, temperature=0.2, max_tokens=1200)
+            res = router.complete("fast", prompt, temperature=0.2, max_tokens=1200, priority=4)
         except AllBusy as e:
             return jsonify(degraded=True, retry_after_s=e.retry_after_s, errors=e.errors[-4:])
         out = memorykit.parse_summary(kind, res.text, set(personas))
@@ -125,7 +127,7 @@ def create_app(router=None, personas=None, token=None):
         suspected = agentmod.detect_injection(screen_text)
         msgs = agentmod.build_messages(persona, {**data, "injection_suspected": suspected})
         try:
-            res = router.complete(router.tier_for(cid), msgs, temperature=0.2, max_tokens=900)
+            res = router.complete(router.tier_for(cid), msgs, temperature=0.2, max_tokens=900, priority=2)
         except AllBusy as e:
             return jsonify(degraded=True, retry_after_s=e.retry_after_s, errors=e.errors[-4:])
         step = agentmod.parse_step(res.text)
@@ -148,7 +150,7 @@ def create_app(router=None, personas=None, token=None):
         if not isinstance(img, str) or not (200 <= len(img) <= 900_000):
             return jsonify(error="bad_image"), 400
         try:
-            res = router.complete("vision", agentmod.build_look_messages(data), temperature=0.1, max_tokens=900)
+            res = router.complete("vision", agentmod.build_look_messages(data), temperature=0.1, max_tokens=900, priority=2)
         except AllBusy as e:
             return jsonify(degraded=True, retry_after_s=e.retry_after_s, errors=e.errors[-4:])
         out = agentmod.parse_look(res.text)
@@ -217,6 +219,17 @@ def create_app(router=None, personas=None, token=None):
                  out["final"]["used"], out["degraded"])
         return jsonify(**out)
 
+    @app.post("/proactive/topic")
+    def proactive_topic():
+        """Quiet helper: did the user just mention something worth preparing research for? Low priority; never raises."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        if not str(data.get("text") or "").strip():
+            return jsonify(worth=False)
+        out = researchmod.proactive_topic(router, data["text"], familymod.TALENT)
+        return jsonify(**out)
+
     @app.get("/talent")
     def talent():
         if (r := guard()) is not None:
@@ -249,9 +262,10 @@ def create_app(router=None, personas=None, token=None):
             return jsonify(error="empty_message"), 400
 
         allowed = toolmod.allowed_for(cid, data.get("tools"))
+        language = norm_lang(data.get("language"))
         messages = build_messages(persona, message, clean_history(data.get("history")),
                                   data.get("memory"), data.get("context"),
-                                  tools=toolmod.describe(allowed) if allowed else None)
+                                  tools=toolmod.describe(allowed) if allowed else None, language=language)
         tier = router.tier_for(cid)
         t0 = time.time()
         base = {"character": cid, "proposed_rule": None, "mood_delta": 0}
@@ -263,16 +277,21 @@ def create_app(router=None, personas=None, token=None):
                            language_ok=True, provider=None, model=None,
                            errors=e.errors[-8:], tool_calls=[], **base)
 
+        payload = finish_chat(res, allowed, messages, language, cid, tier, t0)
+        return jsonify(**payload, **base)
+
+    def finish_chat(res, allowed, messages, language, cid, tier, t0):
+        """Shared by /chat and /chat/stream: parse the model output, language guard, validate tool calls."""
         if allowed:
             text, raw_calls = toolmod.parse_output(res.text)
         else:
             text, raw_calls = res.text, []
-        lang_ok = language_ok(text) if text else True
+        lang_ok = language_matches(text, language) if text else True
         if not lang_ok:  # language guard: rewrite once on the stronger tier
             try:
-                fix = router.complete("smart", messages + rewrite_request(text))
+                fix = router.complete("smart", messages + rewrite_request(text, language))
                 fix_text = toolmod.parse_output(fix.text)[0] if allowed else fix.text
-                if fix_text and language_ok(fix_text):
+                if fix_text and language_matches(fix_text, language):
                     text, lang_ok, res = fix_text, True, fix
             except AllBusy:
                 pass
@@ -284,9 +303,94 @@ def create_app(router=None, personas=None, token=None):
             text = "ठीक है।"
         log.info("chat char=%s tier=%s provider=%s model=%s attempts=%d lang_ok=%s tools=%s ms=%d",
                  cid, tier, res.provider, res.model, res.attempts, lang_ok, [c["name"] for c in calls], (time.time() - t0) * 1000)
-        return jsonify(speech=text, degraded=False, retry_after_s=0, language_ok=lang_ok,
-                       provider=res.provider, model=res.model, attempts=res.attempts,
-                       latency_ms=int((time.time() - t0) * 1000), tool_calls=calls, tool_notes=notes, **base)
+        return dict(speech=text, degraded=False, retry_after_s=0, language_ok=lang_ok,
+                    provider=res.provider, model=res.model, attempts=res.attempts,
+                    latency_ms=int((time.time() - t0) * 1000), tool_calls=calls, tool_notes=notes)
+
+    @app.post("/chat/stream")
+    def chat_stream():
+        """Same answer as /chat, but the words arrive as they are written (server-sent events):
+        data: {"type":"delta","text":...} ... then data: {"type":"final", ...same JSON as /chat...}."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        cid = str(data.get("character") or "jarvis").lower()
+        persona = personas.get(cid)
+        if persona is None:
+            return jsonify(error="unknown_character", known=list(personas)), 404
+        message = str(data.get("message") or "").strip()[:4000]
+        if not message:
+            return jsonify(error="empty_message"), 400
+        allowed = toolmod.allowed_for(cid, data.get("tools"))
+        language = norm_lang(data.get("language"))
+        messages = build_messages(persona, message, clean_history(data.get("history")), data.get("memory"), data.get("context"),
+                                  tools=toolmod.describe(allowed) if allowed else None, language=language)
+        tier = router.tier_for(cid)
+        base = {"character": cid, "proposed_rule": None, "mood_delta": 0}
+
+        def sse(obj):
+            return "data: " + json.dumps(obj, ensure_ascii=False) + "\n\n"
+
+        def gen():
+            t0, ss, res = time.time(), SpeechStream(), None
+            try:
+                for kind, val in router.stream(tier, messages):
+                    if kind == "delta":
+                        d = ss.feed(val)
+                        if d:
+                            yield sse({"type": "delta", "text": d})
+                    elif kind == "done":
+                        res = val
+                    else:  # the stream broke after words had started: say so, the phone keeps what it has
+                        yield sse({"type": "error", "reason": val})
+                        return
+            except AllBusy as e:
+                log.warning("all busy (stream) char=%s errors=%s", cid, e.errors[-4:])
+                yield sse({"type": "final", "speech": persona["busy_line"], "degraded": True, "retry_after_s": e.retry_after_s,
+                           "language_ok": True, "provider": None, "model": None, "errors": e.errors[-8:], "tool_calls": [], **base})
+                return
+            if res is None:
+                return
+            yield sse({"type": "final", **finish_chat(res, allowed, messages, language, cid, tier, t0), **base})
+
+        return Response(stream_with_context(gen()), mimetype="text/event-stream",
+                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.post("/embed")
+    def embed():
+        """Vectors for memory retrieval. Quiet failure: the phone falls back to keyword search."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        texts = data.get("texts")
+        if not isinstance(texts, list) or not texts or len(texts) > 40 or not all(isinstance(t, str) and t.strip() for t in texts):
+            return jsonify(error="bad_request"), 400
+        try:
+            vecs = router.embed([t.strip()[:1500] for t in texts], priority=int(data.get("priority") or 1))
+        except AllBusy as e:
+            return jsonify(degraded=True, retry_after_s=e.retry_after_s, errors=e.errors[-3:])
+        return jsonify(degraded=False, vectors=vecs, dims=len(vecs[0]) if vecs else 0)
+
+    @app.post("/vision/describe")
+    def vision_describe():
+        """Camera photo -> Hindi answer (read the text on it, identify what it is, or answer a question). Nothing is stored."""
+        if (r := guard()) is not None:
+            return r
+        data = request.get_json(silent=True) or {}
+        cid = data.get("character")
+        if personas.get(cid) is None or "camera_look" not in toolmod.allowed_for(cid, ["camera_look"]):
+            return jsonify(error="not_allowed"), 403
+        img = data.get("image_b64")
+        if not isinstance(img, str) or not (200 <= len(img) <= 1_800_000):
+            return jsonify(error="bad_image"), 400
+        try:
+            res = router.complete("vision", agentmod.build_camera_messages(data, personas[cid]), temperature=0.1, max_tokens=900, priority=2)
+        except AllBusy as e:
+            return jsonify(degraded=True, retry_after_s=e.retry_after_s, errors=e.errors[-4:])
+        out = agentmod.parse_camera(res.text)
+        if out is None:
+            return jsonify(degraded=True, retry_after_s=10, errors=["bad_vision_reply"])
+        return jsonify(degraded=False, provider=res.provider, model=res.model, **out)
 
     app.config["ROUTER"] = router
     return app

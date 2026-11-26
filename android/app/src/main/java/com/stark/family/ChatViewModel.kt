@@ -48,6 +48,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var showActivity by mutableStateOf(false)
     var showSkills by mutableStateOf(false)
     var showRules by mutableStateOf(false)
+    var showSetup by mutableStateOf(!prefs.onboarded)
+    var showAssist by mutableStateOf(false)
 
     /** The kill switch: while on, no rule, suggestion, agent task or tool runs. */
     val killed: Boolean get() = KillSwitch.state
@@ -95,6 +97,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val src = if (r.sources.isEmpty()) "" else "\nस्रोत: " + r.sources.take(3).joinToString("; ") { it.title.ifBlank { it.url } + " (" + it.url + ")" }
             val gap = if (r.honestGap) "\n(पक्का जवाब नहीं मिला)" else ""
             list.add(Msg(Kind.AI, r.speech + src + gap, "परिवार · ${r.hops} पड़ाव"))
+            if (r.report.isNotBlank()) list.add(Msg(Kind.NOTE, "📋 रिपोर्ट\n" + r.report))
         } catch (e: RelayClient.RelayException) {
             list.add(Msg(Kind.NOTE, "✗ " + (e.message ?: "परिवार से पूछना नहीं हो पाया")))
         }
@@ -146,14 +149,28 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 var tries = 0
                 val mem = repo.relevant(t, ch.id)
                 while (true) {
-                    val r = client.chat(
-                        relayUrl, token, ch.id, t, history,
-                        tools = Tools.MEMORY_NAMES, context = Tools.context(getApplication<Application>()), memory = mem,
-                    ) { waking = it }
+                    val names = Tools.namesFor(getApplication<Application>(), ch.id, Tools.MEMORY_NAMES)
+                    val ctxJson = Tools.context(getApplication<Application>())
+                    val lang = prefs.languageFor(ch.id)
+                    var liveIdx = -1   // the bubble that fills up word by word while the answer is being written
+                    val r = try {
+                        client.chatStream(relayUrl, token, ch.id, t, history, tools = names, context = ctxJson, memory = mem, language = lang) { d ->
+                            if (liveIdx < 0) {
+                                list.add(Msg(Kind.AI, d, "…"))
+                                liveIdx = list.size - 1
+                            } else {
+                                list[liveIdx] = list[liveIdx].copy(text = list[liveIdx].text + d)
+                            }
+                        }
+                    } catch (e: RelayClient.StreamUnavailable) {
+                        if (liveIdx >= 0) { list.removeAt(liveIdx); liveIdx = -1 }
+                        client.chat(relayUrl, token, ch.id, t, history, tools = names, context = ctxJson, memory = mem, language = lang) { waking = it }
+                    }
+                    if (r.degraded && liveIdx >= 0) { list.removeAt(liveIdx); liveIdx = -1 }
                     if (!r.degraded) {
                         var meta = "${r.provider} · ${r.model}"
-                        if (!r.languageOk) meta += " · ⚠ जवाब पूरी तरह हिंदी में नहीं"
-                        list.add(Msg(Kind.AI, r.speech, meta))
+                        if (!r.languageOk) meta += " · ⚠ जवाब चुनी हुई भाषा में पूरा नहीं"
+                        if (liveIdx >= 0) list[liveIdx] = Msg(Kind.AI, r.speech, meta) else list.add(Msg(Kind.AI, r.speech, meta))
                         repo.addEpisode(ch.id, t, r.speech, r.toolCalls.joinToString(",") { it.name })
                         for (c in r.toolCalls.filter { it.name in Tools.MEMORY_NAMES }.take(3)) {
                             if (KillSwitch.on(getApplication<Application>())) {
@@ -175,7 +192,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             val res = Tools.plan(getApplication<Application>(), c, ch.id).run()
                             list.add(Msg(Kind.NOTE, (if (res.ok) "✓ " else "✗ ") + res.message))
                         }
-                        viewModelScope.launch { repo.maintain(relayUrl, token) }
+                        viewModelScope.launch { repo.maintain(relayUrl, token); Embeddings.indexNew(getApplication<Application>(), relayUrl, token) }
+                        viewModelScope.launch { ProactiveResearch.maybe(getApplication<Application>(), t, ch.id) }
                         break
                     }
                     tries++

@@ -28,7 +28,7 @@ class FakeRouter:
     def tier_for(self, c):
         return "fast"
 
-    def complete(self, tier, messages, temperature=None, max_tokens=None):
+    def complete(self, tier, messages, temperature=None, max_tokens=None, priority=1):
         if tier == "search":
             if self.compound is None:
                 raise AllBusy(10, ["groq/compound:model"])
@@ -41,7 +41,7 @@ class FakeRouter:
             raise r
         return Result(r, "fake", "m", "…", 1, tier)
 
-    def search_grounded(self, prompt, max_tokens=1200):
+    def search_grounded(self, prompt, max_tokens=1200, priority=3):
         self.search_calls += 1
         if self.search is None or isinstance(self.search, Exception):
             raise self.search or AllBusy(10, ["gemini:x"])
@@ -69,12 +69,28 @@ class Scrub(unittest.TestCase):
 
 
 class ResearchRun(unittest.TestCase):
+    def setUp(self):
+        research._CACHE.clear()
+
     def test_grounded_ok(self):
         r = research.run(FakeRouter(search=GROUNDED), PERSONAS["friday"], "Delhi weather today")
         self.assertFalse(r["degraded"])
         self.assertEqual(r["sources"][0]["url"], "https://mausam.imd.gov.in")
         self.assertTrue(r["time_sensitive"])
         self.assertIn("retrieved_at", r)
+
+    def test_cache_saves_quota(self):
+        fr = FakeRouter(search=GROUNDED)
+        a = research.run(fr, PERSONAS["friday"], "Delhi weather today")
+        b = research.run(fr, PERSONAS["friday"], "delhi weather today")
+        self.assertEqual(fr.search_calls, 1)
+        self.assertTrue(b.get("cached"))
+        self.assertEqual(a["answer"], b["answer"])
+
+    def test_failures_are_not_cached(self):
+        fr = FakeRouter()
+        research.run(fr, PERSONAS["edith"], "some tech query", ddg=lambda *a, **k: type("R", (), {"status_code": 500, "text": ""})())
+        self.assertEqual(research._CACHE, {})
 
     def test_proactive_sensitive_refused_without_search(self):
         fr = FakeRouter(search=GROUNDED)
@@ -138,6 +154,34 @@ class ResearchRun(unittest.TestCase):
         self.assertTrue(r["degraded"])
 
 
+class ProactiveTopic(unittest.TestCase):
+    def go(self, text, reply):
+        return research.proactive_topic(FakeRouter([reply]), text, family.TALENT)
+
+    def test_plan_is_worth_it_and_routed_by_talent(self):
+        out = self.go("कल मैं Jaipur जाऊँगा, वहाँ की train के बारे में पता करना है",
+                      J(worth=True, query="Delhi to Jaipur train timings", why="यात्रा की तैयारी"))
+        self.assertTrue(out["worth"])
+        self.assertEqual(out["character"], "jarvis")  # logistics
+
+    def test_chit_chat_is_not(self):
+        self.assertFalse(self.go("आज मन थोड़ा अच्छा है और बातें करने का मन है", J(worth=False))["worth"])
+
+    def test_personal_topics_never_qualify_even_if_model_says_yes(self):
+        self.assertFalse(self.go("मुझे डायबिटीज़ की दवा के बारे में कल डॉक्टर से पूछना है", J(worth=True, query="diabetes medicine"))["worth"])
+        self.assertFalse(self.go("कल की परीक्षा के लिए तैयारी करनी है ठीक से", J(worth=True, query="diabetes symptoms"))["worth"])
+
+    def test_busy_is_quiet(self):
+        out = research.proactive_topic(FakeRouter([AllBusy(5, ["reserved"])]), "कल मैं Jaipur जाऊँगा, train देखनी है", family.TALENT)
+        self.assertFalse(out["worth"])
+
+    def test_endpoint(self):
+        app = create_app(router=FakeRouter([J(worth=True, query="JEE syllabus 2027", why="पढ़ाई")]), personas=PERSONAS, token="t")
+        r = app.test_client().post("/proactive/topic", json={"text": "अगले हफ़्ते से मुझे JEE की तैयारी शुरू करनी है"}, headers={"X-App-Token": "t"})
+        self.assertTrue(r.get_json()["worth"])
+        self.assertEqual(r.get_json()["character"], "vision")
+
+
 class Registry(unittest.TestCase):
     def test_best_peer_by_talent(self):
         self.assertEqual(family.rank_peers("phone ki battery jaldi khatam", "jarvis", personas=PERSONAS)[0][0], "edith")
@@ -159,6 +203,9 @@ class Registry(unittest.TestCase):
 
 
 class AskFamily(unittest.TestCase):
+    def setUp(self):
+        research._CACHE.clear()
+
     def run_it(self, fr, **extra):
         d = {"asker": "jarvis", "question": "मेरे फ़ोन की बैटरी जल्दी क्यों ख़त्म होती है?", "memory": []}
         d.update(extra)
@@ -211,6 +258,30 @@ class AskFamily(unittest.TestCase):
         txt = [s["text"] for s in out["steps"] if s["kind"] == "research_result"][0]
         self.assertIn("429", txt)
 
+    def test_report_card_fields(self):
+        fr = FakeRouter([J(known=False, answer="", needs_fresh=False), J(known=True, answer="बैकग्राउंड ऐप्स।"), "सर, एडिथ के मुताबिक़ बैकग्राउंड ऐप्स।"])
+        rep = self.run_it(fr)["report"]
+        self.assertEqual(set(rep), {"problem", "did", "result", "left", "options"})
+        self.assertIn("E.D.I.T.H. से पूछा", rep["did"])
+        self.assertEqual(rep["left"], "कुछ नहीं, जवाब मिल गया")
+
+    def test_report_is_honest_when_nothing_found(self):
+        fr = FakeRouter([J(known=False, answer="", needs_fresh=False), J(known=False, answer=""), "सर, पक्का जवाब नहीं मिला।"], search=AllBusy(5, ["x"]))
+        rep = self.run_it(fr)["report"]
+        self.assertIn("नहीं मिला", rep["left"])
+        self.assertIn("दोबारा खोजें", rep["options"])
+
+    def test_ultron_review_is_optional_and_budgeted(self):
+        base = [J(known=False, answer="", needs_fresh=False), J(known=True, answer="बैकग्राउंड ऐप्स।"), "सर, एडिथ के मुताबिक़ बैकग्राउंड ऐप्स।"]
+        off = self.run_it(FakeRouter(list(base)))
+        self.assertNotIn("review", [s["kind"] for s in off["steps"]])
+        on = self.run_it(FakeRouter(list(base) + ["जवाब आधा-अधूरा है, पर ठीक है।"]), ultron_review=True)
+        self.assertIn("review", [s["kind"] for s in on["steps"]])
+        self.assertLessEqual(on["llm_calls"], family.TALENT["limits"]["max_llm_calls"] + 1)
+        # Ultron never reviews his own answer
+        own = self.run_it(FakeRouter(list(base)), ultron_review=True, asker="ultron")
+        self.assertNotIn("review", [s["kind"] for s in own["steps"]])
+
     def test_nothing_found_is_honest(self):
         fr = FakeRouter([J(known=False, answer="", needs_fresh=False), J(known=False, answer=""),
                          "सर, मैंने एडिथ से पूछा और इंटरनेट पर खोजा, पर पक्का जवाब नहीं मिला।"], search=AllBusy(10, ["x"]))
@@ -241,6 +312,9 @@ class AskFamily(unittest.TestCase):
 
 
 class Endpoints(unittest.TestCase):
+    def setUp(self):
+        research._CACHE.clear()
+
     def client(self, fr):
         app = create_app(router=fr, personas=PERSONAS, token="tok")
         return app.test_client()
@@ -292,12 +366,55 @@ class ReasonsNeverEmpty(unittest.TestCase):
         r = Router(self.CFG, env={"GEMINI_KEYS": '["k1111"]'}, transport=lambda *a, **k: None)
         r.keys["gemini"][0].cooling_until = r.now() + 999
         with self.assertRaises(AllBusy) as cm:
-            r.search_grounded("q")
+            r.search_grounded("q", priority=1)
         self.assertIn("gemini:no_healthy_key (cooling)", cm.exception.errors)
+        with self.assertRaises(AllBusy) as cm2:  # background work waits when quota is low
+            r.search_grounded("q", priority=3)
+        self.assertIn("reserved_for_direct_requests", cm2.exception.errors)
 
     def test_health_reports_version(self):
         c = create_app(router=FakeRouter(), personas=PERSONAS, token="t").test_client()
-        self.assertEqual(c.get("/health").get_json()["version"], "m10d")
+        self.assertEqual(c.get("/health").get_json()["version"], "m10i")
+
+
+class PriorityReserve(unittest.TestCase):
+    CFG = {"request": {"timeout_s": 5, "max_attempts_per_provider": 3, "max_attempts_total": 8, "temperature": 0.7, "max_tokens": 100},
+           "breaker": {"threshold": 6, "open_s": 60}, "reserve": {"min_healthy_ratio_for_background": 0.5, "min_healthy_ratio_for_tasks": 0.15},
+           "tiers": {"fast": [{"provider": "groq", "model": "m"}]}, "characters": {}}
+
+    class R:
+        status_code, headers, text = 200, {}, "x"
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    def router(self, n=4):
+        import json as _j
+        return Router(self.CFG, env={"GROQ_KEYS": _j.dumps([f"key{i}abcd" for i in range(n)])}, transport=lambda *a, **k: self.R())
+
+    def test_everyone_runs_when_quota_is_fine(self):
+        r = self.router()
+        for p in (1, 2, 3, 4):
+            self.assertEqual(r.complete("fast", [{"role": "user", "content": "x"}], priority=p).text, "ok")
+
+    def test_background_waits_direct_still_runs(self):
+        r = self.router(4)
+        for k in r.keys["groq"][:3]:
+            k.cooling_until = r.now() + 500  # 1 of 4 healthy = 25%
+        with self.assertRaises(AllBusy) as cm:
+            r.complete("fast", [{"role": "user", "content": "x"}], priority=3)
+        self.assertEqual(cm.exception.errors, ["reserved_for_direct_requests"])
+        with self.assertRaises(AllBusy):
+            r.complete("fast", [{"role": "user", "content": "x"}], priority=4)
+        self.assertEqual(r.complete("fast", [{"role": "user", "content": "x"}], priority=1).text, "ok")
+        self.assertEqual(r.complete("fast", [{"role": "user", "content": "x"}], priority=2).text, "ok")
+
+    def test_real_config_ultron_uses_deep_tier(self):
+        from router import load_config
+        cfg = load_config()
+        self.assertEqual(cfg["characters"]["ultron"], "deep")
+        self.assertEqual(cfg["tiers"]["deep"][0]["params"]["reasoning_effort"], "high")
+        self.assertEqual(cfg["characters"]["jarvis"], "smart")
 
 
 class GroundedSearchInRouter(unittest.TestCase):

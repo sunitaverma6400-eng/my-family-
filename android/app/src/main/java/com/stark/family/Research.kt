@@ -1,6 +1,7 @@
 package com.stark.family
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -38,6 +39,7 @@ data class FamilyResult(
     val steps: List<FamilyStep>,
     val honestGap: Boolean,
     val hops: Int,
+    val report: String = "",
 )
 
 /**
@@ -190,7 +192,7 @@ object Family {
     suspend fun ask(ctx: Context, asker: String, question: String, memory: List<String>): FamilyResult {
         val p = Prefs(ctx)
         val redact = JSONArray(p.redactTerms.split(',').map { it.trim() }.filter { it.length >= 2 })
-        val j = RelayClient().familyAsk(p.relayUrl, p.token, asker, question, memory, Talent.adjustments(ctx), redact)
+        val j = RelayClient().familyAsk(p.relayUrl, p.token, asker, question, memory, Talent.adjustments(ctx), redact, p.ultronReview)
         val fin = j.optJSONObject("final") ?: JSONObject()
         val steps = mutableListOf<FamilyStep>()
         j.optJSONArray("steps")?.let { a ->
@@ -212,7 +214,22 @@ object Family {
             degraded = j.optBoolean("degraded", false), speech = fin.optString("speech"), who = fin.optString("who", asker),
             sources = parseSources(fin.optJSONArray("sources")), confidence = fin.optDouble("confidence", 0.0), steps = steps,
             honestGap = fin.optBoolean("honest_gap", false), hops = j.optInt("hops", 0),
+            report = reportText(j.optJSONObject("report")),
         )
+    }
+
+    /** The self-solving report: problem / what was done / result / what is left / options. */
+    private fun reportText(o: JSONObject?): String {
+        if (o == null) return ""
+        val did = o.optJSONArray("did")?.let { a -> (0 until a.length()).joinToString(", ") { a.optString(it) } }.orEmpty()
+        val opts = o.optJSONArray("options")?.let { a -> (0 until a.length()).joinToString(" · ") { a.optString(it) } }.orEmpty()
+        return buildString {
+            append("समस्या: ").append(o.optString("problem")).append('\n')
+            append("क्या किया: ").append(did).append('\n')
+            append("नतीजा: ").append(o.optString("result")).append('\n')
+            append("बाक़ी: ").append(o.optString("left"))
+            if (opts.isNotBlank()) append('\n').append("आगे के विकल्प: ").append(opts)
+        }
     }
 
     private fun parseSources(a: JSONArray?): List<Source> {
@@ -230,5 +247,32 @@ object Family {
         val from = Characters.byId(s.who).name
         val to = if (s.to == "user" || s.to == "family") "" else " → " + Characters.byId(s.to).name
         "👥 $from$to: ${s.text}"
+    }
+}
+
+/**
+ * Quiet preparation: when the user says what they will do next, the right character may look it up in the background
+ * and tell them later. Off by default, a small daily budget, never for personal topics, and the relay gives it the
+ * lowest priority so it can never use the quota kept for direct requests.
+ */
+object ProactiveResearch {
+    suspend fun maybe(ctx: Context, userText: String, speaker: String) {
+        val app = ctx.applicationContext
+        val p = Prefs(app)
+        if (!p.proactiveResearch || KillSwitch.on(app) || userText.length < 12) return
+        if (p.researchUsedToday() >= p.researchBudget) return
+        try {
+            val t = RelayClient().proactiveTopic(p.relayUrl, p.token, userText)
+            if (!t.optBoolean("worth", false)) return
+            val q = t.optString("query")
+            if (q.isBlank()) return
+            val who = t.optString("character", speaker).ifBlank { speaker }
+            p.noteResearchUsed()
+            val r = Research.search(app, who, q, proactive = true)
+            if (r.degraded || r.refused.isNotBlank() || r.confidence < 0.5) return
+            Proactive.deliver(app, Suggestion("info", "", who, "आपके अगले काम के लिए खोजकर रखा", Research.format(r).take(400)))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) { }
     }
 }

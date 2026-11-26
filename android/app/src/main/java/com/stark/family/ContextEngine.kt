@@ -25,6 +25,7 @@ class Situation(
     val time: String, val weekday: Int, val minutes: Int, val battery: Int?, val charging: Boolean?, val network: String?,
     val app: String?, val screenOn: Boolean?, val headphones: Boolean?, val dnd: Boolean?, val place: String?,
     val nextEvent: String?, val sleepWindow: String,
+    val activity: String? = null, val placeClass: String? = null, val notifs: Int? = null,
 ) {
     fun toJson(): JSONObject {
         val o = JSONObject().put("time", time).put("weekday", weekday).put("sleep_window", sleepWindow)
@@ -37,6 +38,9 @@ class Situation(
         dnd?.let { o.put("dnd", it) }
         place?.let { o.put("place", it) }
         nextEvent?.let { o.put("next_event", it) }
+        activity?.let { o.put("activity", it) }
+        placeClass?.let { o.put("place_class", it) }
+        notifs?.let { o.put("notifications_30m", it) }
         return o
     }
 }
@@ -51,7 +55,8 @@ object ContextEngine {
     val SENSORS = listOf(
         "battery" to "बैटरी और चार्जिंग", "network" to "नेटवर्क (Wi-Fi / मोबाइल)", "app" to "सामने खुला ऐप",
         "screen" to "स्क्रीन चालू/बंद", "headphones" to "हेडफ़ोन लगे हैं या नहीं", "dnd" to "Do Not Disturb की स्थिति",
-        "place" to "जगह: घर / बाहर", "calendar" to "कैलेंडर की अगली घटना",
+        "place" to "जगह: घर / बाहर / सफ़र में", "calendar" to "कैलेंडर की अगली घटना",
+        "activity" to "बैठा / चलता / गाड़ी में (Activity Recognition)", "notifications" to "नोटिफ़िकेशन की हलचल (पिछले 30 मिनट)",
     )
 
     private fun hhmm(min: Int) = String.format(Locale.US, "%02d:%02d", min / 60, min % 60)
@@ -110,9 +115,12 @@ object ContextEngine {
         }
         val place: String? = if (!p.sensorOn("place") || !p.hasHome || p.place.isEmpty()) null else p.place
         val next: String? = if (!p.sensorOn("calendar")) null else nextEvent(ctx)
+        val act: String? = if (!p.sensorOn("activity")) null else ActivityTracker.current(ctx)
+        val notifs: Int? = if (!p.sensorOn("notifications") || !NotifyListener.enabled(ctx)) null else NotifyListener.activity(30)
+        val placeClass: String? = if (!p.sensorOn("place")) null else if (act == "vehicle") "travelling" else place
         return Situation(
             SimpleDateFormat("HH:mm", Locale.US).format(Date()), wd, minutes, battery, charging, network, app, screen, phones,
-            dnd, place, next, sleepWindow(p),
+            dnd, place, next, sleepWindow(p), act, placeClass, notifs,
         )
     }
 

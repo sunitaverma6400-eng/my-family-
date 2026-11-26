@@ -19,6 +19,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.text.SimpleDateFormat
@@ -212,23 +214,34 @@ class MemoryRepo private constructor(app: Context) {
             val low = t.lowercase()
             return q.count { low.contains(it) }
         }
+        // meaning-based search on top of keywords (only if vectors exist and the relay answers quickly)
+        val qv: FloatArray? = try { Embeddings.queryVector(appCtx, userText) } catch (_: Exception) { null }
+        val vecs: Map<String, FloatArray> = if (qv != null) try { Embeddings.loadAll(appCtx) } catch (_: Exception) { emptyMap() } else emptyMap()
+        fun sim(key: String): Double {
+            val v = vecs[key] ?: return 0.0
+            return Embeddings.dot(qv ?: return 0.0, v).toDouble()
+        }
         dao.summary("profile", "profile")?.let { out.add("प्रोफ़ाइल: " + it.text.take(700)) }
         val facts = dao.facts()
         val matched = facts.map { f ->
             val ageDays = (nowMs - f.updatedAt) / 86_400_000.0
-            f to (overlap(f.text) * 3.0 + f.importance * 0.8 + 2.0 * Math.exp(-ageDays / 30.0))
-        }.filter { overlap(it.first.text) > 0 }.sortedByDescending { it.second }.take(5).map { it.first }
+            val s = sim("fact:${f.id}")
+            f to (overlap(f.text) * 3.0 + f.importance * 0.8 + 2.0 * Math.exp(-ageDays / 30.0) + (if (s >= 0.55) s * 8.0 else 0.0))
+        }.filter { overlap(it.first.text) > 0 || sim("fact:${it.first.id}") >= 0.6 }.sortedByDescending { it.second }.take(5).map { it.first }
         val important = facts.filter { it.importance >= 4 && it !in matched }.take(3)
         (matched + important).forEach { out.add((if (it.kind == "habit") "आदत: " else "तथ्य: ") + it.text) }
         dao.summaries("daily").take(2).forEach { out.add("सार (${it.period}): " + it.text.take(300)) }
         dao.notes().filter { it.character == character }.take(3).forEach { out.add("तुम्हारी अपनी टिप्पणी: " + it.text) }
         // earlier research (shared by the whole family); stale time-sensitive ones are skipped until re-checked
         try { out.addAll(ResearchNotes.relevant(appCtx, userText)) } catch (_: Exception) { }
-        if (q.isNotEmpty()) {
+        if (q.isNotEmpty() || qv != null) {
             val today = dayKey(nowMs)
             dao.episodesSince(nowMs - 45L * 86_400_000L).filter { it.day != today }
-                .map { it to overlap(it.user + " " + it.reply) }
-                .filter { it.second > 0 }.sortedByDescending { it.second }.take(2)
+                .map { e ->
+                    val s = sim("episode:${e.id}")
+                    e to (overlap(e.user + " " + e.reply) + (if (s >= 0.6) s * 8.0 else 0.0))
+                }
+                .filter { it.second > 0.0 }.sortedByDescending { it.second }.take(2)
                 .forEach { (e, _) ->
                     out.add("पुरानी बातचीत (${e.day}): उपयोगकर्ता: ${e.user.take(100)} | ${Characters.byId(e.character).name}: ${e.reply.take(100)}")
                 }
@@ -320,6 +333,7 @@ class MemoryRepo private constructor(app: Context) {
     suspend fun wipeAll() = withContext(Dispatchers.IO) {
         db.clearAllTables()
         try { db.openHelper.writableDatabase.execSQL("VACUUM") } catch (_: Exception) { }
+        try { Embeddings.wipe(appCtx) } catch (_: Exception) { }  // the meaning-vectors are memory too
         Unit
     }
 
@@ -346,19 +360,26 @@ class MemoryRepo private constructor(app: Context) {
             .put("facts", facts).put("episodes", eps).put("summaries", sums).put("notes", notes)
     }
 
-    suspend fun backupZip(out: OutputStream) = withContext(Dispatchers.IO) {
+    /** [passphrase] non-empty = the backup file is locked (AES-256-GCM); empty = a plain zip as before. */
+    suspend fun backupZip(out: OutputStream, passphrase: String = "") = withContext(Dispatchers.IO) {
         val json = toJson().toString()
-        ZipOutputStream(out).use { z ->
+        val buf = ByteArrayOutputStream()
+        ZipOutputStream(buf).use { z ->
             z.putNextEntry(ZipEntry("memory.json"))
             z.write(json.toByteArray(Charsets.UTF_8))
             z.closeEntry()
         }
+        val bytes = buf.toByteArray()
+        out.write(if (passphrase.isEmpty()) bytes else BackupCrypto.encrypt(bytes, passphrase))
+        out.flush()
     }
 
-    /** Replaces everything with the backup. Returns the number of entries restored, or -1 if the file is not ours. */
-    suspend fun restoreZip(input: InputStream): Int = withContext(Dispatchers.IO) {
+    /** Replaces everything with the backup. Returns the number of entries restored, -1 if the file is not ours, -2 if it is locked and the passphrase is missing or wrong. */
+    suspend fun restoreZip(input: InputStream, passphrase: String = ""): Int = withContext(Dispatchers.IO) {
+        var raw = input.readBytes()
+        if (BackupCrypto.isEncrypted(raw)) raw = BackupCrypto.decrypt(raw, passphrase) ?: return@withContext -2
         var text: String? = null
-        ZipInputStream(input).use { z ->
+        ZipInputStream(ByteArrayInputStream(raw)).use { z ->
             while (true) {
                 val e = z.nextEntry ?: break
                 if (e.name == "memory.json") { text = z.readBytes().toString(Charsets.UTF_8); break }

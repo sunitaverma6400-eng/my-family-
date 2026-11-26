@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -182,8 +183,10 @@ fun ActivityScreen(ch: Character, onClose: () -> Unit) {
                                 "${s.n}. ${s.action} ${s.target} — ${s.reason}\n   → ${s.result}${if (s.confirmed.isNotEmpty()) "  [" + s.confirmed + "]" else ""}",
                                 color = DIM, fontSize = 12.sp,
                             )
+                            val thumb = remember(s.id) { Thumbs.load(ctx, s.runId, s.n) }
+                            if (thumb != null) Image(bitmap = thumb, contentDescription = null, modifier = Modifier.fillMaxWidth(0.4f).padding(vertical = 2.dp))
                         }
-                        TextButton(onClick = { scope.launch { dao.deleteSteps(r.id); dao.deleteRun(r.id); open = -1L; tick++ } }) {
+                        TextButton(onClick = { scope.launch { dao.deleteSteps(r.id); dao.deleteRun(r.id); Thumbs.delete(ctx, r.id); open = -1L; tick++ } }) {
                             Text("🗑 यह रिकॉर्ड मिटाओ", color = RED, fontSize = 13.sp)
                         }
                     }
@@ -202,7 +205,7 @@ fun ActivityScreen(ch: Character, onClose: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     wipe = false
-                    scope.launch { dao.runs().forEach { dao.deleteSteps(it.id); dao.deleteRun(it.id) }; open = -1L; tick++ }
+                    scope.launch { dao.runs().forEach { dao.deleteSteps(it.id); dao.deleteRun(it.id) }; Thumbs.deleteAll(ctx); open = -1L; tick++ }
                 }) { Text("हाँ", color = RED) }
             },
             dismissButton = { TextButton(onClick = { wipe = false }) { Text("नहीं", color = DIM) } },
